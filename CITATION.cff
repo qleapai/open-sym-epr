@@ -1,0 +1,19 @@
+cff-version: 1.2.0
+message: "If you use Open-Sym-EPR, please cite it as below."
+title: "Open-Sym-EPR: a free, open-source, native-Python engine for the simulation and fitting of cw-EPR, ENDOR, ESEEM, and magnetometry"
+authors:
+  - family-names: "Khan"
+    given-names: "Md Sakib Hasan"
+    affiliation: "The Australian National University"
+version: 1.0.0
+license: MIT
+repository-code: "https://github.com/USER/open-sym-epr"
+keywords:
+  - electron paramagnetic resonance
+  - EPR
+  - spin Hamiltonian
+  - spectral simulation
+  - spin trapping
+  - ENDOR
+  - ESEEM
+  - magnetometry

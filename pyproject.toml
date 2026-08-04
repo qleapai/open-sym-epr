@@ -1,0 +1,39 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "open-sym-epr"
+version = "1.0.0"
+description = "Open-Sym-EPR — a free, open-source, native-Python engine and browser app for simulating and fitting cw-EPR, ENDOR, ESEEM, and magnetometry. No MATLAB, no proprietary dependencies."
+readme = "README.md"
+requires-python = ">=3.10"
+license = {text = "MIT"}
+authors = [{name = "Md Sakib Hasan Khan"}]
+keywords = ["EPR", "ESR", "spin Hamiltonian", "spectral simulation", "spin trapping", "ENDOR", "ESEEM", "magnetometry"]
+dependencies = [
+  "numpy>=1.24,<2.0",
+  "scipy>=1.10",
+  "pandas>=2.0",
+  "plotly>=5.18",
+  "matplotlib>=3.7",
+  "streamlit>=1.31",
+  "pydantic>=2.0",
+  "pyyaml>=6.0",
+  "scikit-learn>=1.3",
+  "joblib>=1.3",
+]
+
+[project.optional-dependencies]
+dev = ["pytest>=8.0"]
+
+[project.urls]
+Homepage = "https://github.com/USER/open-sym-epr"
+Repository = "https://github.com/USER/open-sym-epr"
+
+[tool.setuptools.packages.find]
+include = ["openspin*", "epr_simfit*"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "-q"

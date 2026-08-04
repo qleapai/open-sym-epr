@@ -1,0 +1,72 @@
+{
+  "microwave_frequency_GHz": 9.85,
+  "cases": {
+    "nitroxide_14N": {
+      "file": "syn_nitroxide_14N.txt",
+      "engine": "garlic",
+      "g": 2.006,
+      "aN_mT": 1.55,
+      "lw_mT": 0.12,
+      "noise": 0.02
+    },
+    "organic_radical": {
+      "file": "syn_organic_radical.txt",
+      "engine": "garlic",
+      "g": 2.0045,
+      "aH_mT": 0.45,
+      "lw_mT": 0.08,
+      "noise": 0.025
+    },
+    "cu_powder": {
+      "file": "syn_cu_powder.txt",
+      "engine": "pepper",
+      "g_perp": 2.06,
+      "g_par": 2.3,
+      "ACu_par_mT": 16.0,
+      "noise": 0.02
+    },
+    "two_component": {
+      "file": "syn_two_component.txt",
+      "engine": "garlic",
+      "components": [
+        "nitroxide g=2.0060 aN=1.55",
+        "broad g=2.0035"
+      ],
+      "noise": 0.02
+    },
+    "bruker_nitroxide": {
+      "files": [
+        "syn_bruker.DSC",
+        "syn_bruker.DTA"
+      ],
+      "engine": "garlic",
+      "g": 2.006,
+      "aN_mT": 1.55,
+      "lw_mT": 0.12,
+      "format": "BES3T big-endian float64"
+    },
+    "kinetics_series": {
+      "files": [
+        "syn_kinetics_00min.txt",
+        "syn_kinetics_05min.txt",
+        "syn_kinetics_10min.txt",
+        "syn_kinetics_20min.txt",
+        "syn_kinetics_30min.txt"
+      ],
+      "times_min": [
+        0,
+        5,
+        10,
+        20,
+        30
+      ],
+      "rel_amplitude": [
+        0.1,
+        0.6,
+        1.0,
+        0.7,
+        0.4
+      ]
+    }
+  }
+}

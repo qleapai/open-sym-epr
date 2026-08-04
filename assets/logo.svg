@@ -1,0 +1,130 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 500 500" width="500" height="500">
+  <defs>
+    <!-- Background gradient: dark navy → science blue -->
+    <linearGradient id="bgGrad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%"   stop-color="#0c1445"/>
+      <stop offset="100%" stop-color="#1a3a9c"/>
+    </linearGradient>
+
+    <!-- Glow filter for main curve -->
+    <filter id="glow" x="-30%" y="-30%" width="160%" height="160%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="5" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Soft glow for secondary curve -->
+    <filter id="softglow" x="-20%" y="-20%" width="140%" height="140%">
+      <feGaussianBlur in="SourceGraphic" stdDeviation="3" result="blur"/>
+      <feMerge>
+        <feMergeNode in="blur"/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+
+    <!-- Clip to rounded rect -->
+    <clipPath id="roundClip">
+      <rect width="500" height="500" rx="60"/>
+    </clipPath>
+  </defs>
+
+  <!-- Background -->
+  <rect width="500" height="500" rx="60" fill="url(#bgGrad)"/>
+
+  <!-- Subtle grid / decoration lines -->
+  <g clip-path="url(#roundClip)" opacity="0.06">
+    <line x1="0"   y1="185" x2="500" y2="185" stroke="white" stroke-width="1"/>
+    <line x1="0"   y1="280" x2="500" y2="280" stroke="white" stroke-width="1"/>
+    <line x1="250" y1="60"  x2="250" y2="380" stroke="white" stroke-width="1"/>
+  </g>
+
+  <!-- Field axis (B₀) — dashed, subtle -->
+  <line x1="42" y1="232" x2="458" y2="232"
+        stroke="rgba(255,255,255,0.18)" stroke-width="1.5"
+        stroke-dasharray="6,5" stroke-linecap="round"/>
+
+  <!--
+    EPR first-derivative Gaussian lineshapes.
+    All curves centred on the field axis (y=232).
+    Positive lobe goes UP (y < 232), negative lobe goes DOWN (y > 232).
+
+    Main component  : white,   σ≈75px, amplitude 82px  — centre x=250
+    Second component: #60a5fa, σ≈48px, amplitude 46px  — centre x=268 (slightly shifted right)
+    Broad background: #818cf8, σ≈120px, amplitude 22px — centre x=240
+  -->
+
+  <!-- Broad background component (very faint indigo) -->
+  <path d="
+    M 30,232
+    C 75,232  140,208 200,218
+    C 230,223 250,227 290,236
+    C 340,246 400,232 470,232
+  "
+  fill="none" stroke="#818cf8" stroke-width="2" opacity="0.28"
+  stroke-linecap="round" stroke-linejoin="round"/>
+
+  <!-- Second EPR component (light blue, narrower) -->
+  <path d="
+    M 55,232
+    C 92,232  145,178 198,183
+    C 222,186 242,221 268,232
+    C 294,242 312,273 338,279
+    C 362,284 415,232 455,232
+  "
+  fill="none" stroke="#60a5fa" stroke-width="2.8" opacity="0.72"
+  stroke-linecap="round" stroke-linejoin="round"
+  filter="url(#softglow)"/>
+
+  <!-- Main EPR first-derivative curve (white, bold, glowing) -->
+  <!--
+    Curve traced through:
+      (42, 232)  → baseline left
+      (170, 148) → positive peak  [centre-80, y=232-84]
+      (250, 232) → zero crossing
+      (330, 316) → negative trough [centre+80, y=232+84]
+      (458, 232) → baseline right
+
+    Bezier control points ensure horizontal tangents at peak and trough.
+  -->
+  <path d="
+    M 42,232
+    C 85,232  132,148 170,148
+    C 205,148 228,224 250,232
+    C 272,239 295,316 330,316
+    C 366,316 415,232 458,232
+  "
+  fill="none" stroke="white" stroke-width="4.5"
+  stroke-linecap="round" stroke-linejoin="round"
+  filter="url(#glow)"/>
+
+  <!-- Zero-crossing marker -->
+  <circle cx="250" cy="232" r="5.5" fill="white" opacity="0.9"/>
+
+  <!-- Resonance field tick marks -->
+  <line x1="250" y1="228" x2="250" y2="236" stroke="white" stroke-width="2.5" opacity="0.6"/>
+
+  <!-- ─── Text ─────────────────────────────────────── -->
+
+  <!-- "SimEPR" wordmark -->
+  <text x="250" y="420"
+        text-anchor="middle"
+        fill="white"
+        font-family="'Helvetica Neue', 'Arial', sans-serif"
+        font-size="76" font-weight="800" letter-spacing="2">SimEPR</text>
+
+  <!-- Tagline -->
+  <text x="250" y="460"
+        text-anchor="middle"
+        fill="rgba(255,255,255,0.52)"
+        font-family="'Helvetica Neue', 'Arial', sans-serif"
+        font-size="15.5" font-weight="400" letter-spacing="5.5">EPR SIMULATION &amp; FITTING</text>
+
+  <!-- Small "B₀ →" label on axis -->
+  <text x="452" y="225"
+        text-anchor="start"
+        fill="rgba(255,255,255,0.30)"
+        font-family="'Helvetica Neue', 'Arial', sans-serif"
+        font-size="12" font-style="italic">B₀</text>
+</svg>

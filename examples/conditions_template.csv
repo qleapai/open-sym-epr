@@ -1,0 +1,12 @@
+filename,condition
+demo_generic_organic_radical.asc,generic_organic_radical
+demo_generic_nitroxide_spin_label.asc,generic_nitroxide_spin_label
+demo_generic_cu_mn_screen.asc,generic_cu_mn_screen
+demo_PBN_DMSO_water_light_blank.asc,PBN_DMSO_water_light_blank
+demo_PdOvBMO_N2_dark.asc,PdOvBMO_N2_dark
+demo_PdOvBMO_Ar_light.asc,PdOvBMO_Ar_light
+demo_PdOvBMO_air_light.asc,PdOvBMO_air_light
+demo_PdOvBMO_N2_light.asc,PdOvBMO_N2_light
+demo_BMO_N2_light.asc,BMO_N2_light
+demo_OvBMO_N2_light.asc,OvBMO_N2_light
+demo_PdBMO_N2_light.asc,PdBMO_N2_light
