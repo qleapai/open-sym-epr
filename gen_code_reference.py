@@ -15,8 +15,8 @@ from docx.enum.table import WD_TABLE_ALIGNMENT
 from docx.oxml.ns import qn
 from docx.oxml import OxmlElement
 
-ROOT = Path(r"E:\EPR-Suite")
-OUT = ROOT / "EPR-Suite_Code_Reference.docx"
+ROOT = Path(r"E:\Open-Sym-EPR")
+OUT = ROOT / "paper" / "OpenSymEPR_Code_Reference.docx"
 NAVY = RGBColor(0x16, 0x30, 0x6b)
 TEAL = RGBColor(0x2c, 0x3e, 0x50)
 CODEC = RGBColor(0x1a, 0x1a, 0x1a)
