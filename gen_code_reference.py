@@ -37,7 +37,7 @@ GROUPS = [
         "epr_simfit/model_suggester.py", "epr_simfit/interpretation.py", "epr_simfit/io.py",
         "epr_simfit/bruker.py", "epr_simfit/metadata_parser.py", "epr_simfit/batch.py",
         "epr_simfit/export.py", "epr_simfit/reference_library.py", "epr_simfit/user_models.py",
-        "epr_simfit/native_solvers.py", "epr_simfit/ml_fitting.py", "epr_simfit/plotting.py", "epr_simfit/report.py",
+        "epr_simfit/native_solvers.py", "epr_simfit/ml_fitting.py", "epr_simfit/mixtures.py", "epr_simfit/plotting.py", "epr_simfit/report.py",
         "epr_simfit/evidence.py", "epr_simfit/demo_data.py", "epr_simfit/utils.py",
         "epr_simfit/about.py", "epr_simfit/cli.py",
     ]),

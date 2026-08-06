@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "open-sym-epr"
-version = "1.0.0"
+version = "1.1.0"
 description = "Open-Sym-EPR — a free, open-source, native-Python engine and browser app for simulating and fitting cw-EPR, ENDOR, ESEEM, and magnetometry. No MATLAB, no proprietary dependencies."
 readme = "README.md"
 requires-python = ">=3.10"

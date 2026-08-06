@@ -14,6 +14,7 @@ from epr_simfit.export import build_export_zip, fit_components_dataframe
 from epr_simfit.fitter import fit_spectrum
 from epr_simfit.io import parse_epr_text
 from epr_simfit.metadata_parser import metadata_table
+from epr_simfit import mixtures as mixtures_mod
 from epr_simfit.model_comparison import compare_models
 from epr_simfit.model_library import MODEL_DESCRIPTIONS, MODEL_PRESETS, component_table, default_components
 from epr_simfit.model_suggester import ExperimentContext, suggest_models
@@ -329,7 +330,7 @@ else:
 if "_pending_field_shift" in st.session_state:
     st.session_state["field_shift_mT"] = st.session_state.pop("_pending_field_shift")
 
-tabs = st.tabs(["Import", "Metadata", "Preprocess", "Model builder", "Fit", "Compare", "Export", "Batch / kinetics", "References", "Solvers", "ML-assisted fit", "White paper / citation"])
+tabs = st.tabs(["Import", "Metadata", "Preprocess", "Model builder", "Fit", "Compare", "Export", "Batch / kinetics", "References", "Solvers", "ML-assisted fit", "Adduct mixture", "White paper / citation"])
 
 with tabs[0]:
     st.subheader("Import")
@@ -1517,6 +1518,88 @@ with tabs[10]:
                 st.caption(res.note)
 
 with tabs[11]:
+    st.subheader("Spin-adduct mixture — manual ratios & automated recovery")
+    st.markdown(
+        "Compose any set of spin-trap adducts (or other components) at **user-defined ratios**, "
+        "simulate the composite spectrum with its stacked contributions, and — when an experimental "
+        "spectrum is loaded — **automatically recover** the ratios by least-squares fitting. The "
+        "automated fit can also refine linewidths, g, and **hyperfine (esfit-style)** so a modelled "
+        "triplet can match a measured one whose splitting differs from the library defaults."
+    )
+    _lib = default_components()
+    _lib_ids = list(_lib.keys())
+    _default_mix = [c.component_id for c in st.session_state.get("selected_components", [])
+                    if c.component_id in _lib_ids] or ["pbn_oh", "pbn_nh2_candidate"]
+    _default_mix = [cid for cid in _default_mix if cid in _lib_ids]
+    mix_ids = st.multiselect("Adducts in the mixture", _lib_ids, default=_default_mix,
+                             key="mix_component_ids")
+    if not mix_ids:
+        st.info("Select at least one component to build a mixture.")
+    else:
+        mix_components = [_lib[cid].clone() for cid in mix_ids]
+        if any(_lib[cid].warning for cid in mix_ids):
+            _warned = [f"**{_lib[cid].display_name}** — {_lib[cid].warning}" for cid in mix_ids if _lib[cid].warning]
+            st.warning("Candidate/assignment cautions:\n\n- " + "\n- ".join(_warned))
+
+        st.markdown("**Manual ratios** (relative; normalised to 100 %)")
+        mcols = st.columns(min(4, len(mix_ids)))
+        manual = {}
+        for i, cid in enumerate(mix_ids):
+            with mcols[i % len(mcols)]:
+                manual[cid] = st.number_input(_lib[cid].display_name, min_value=0.0, max_value=100.0,
+                                              value=round(100.0 / len(mix_ids), 1), step=1.0,
+                                              key=f"mix_ratio_{cid}")
+        norm = mixtures_mod.normalise_ratios(manual)
+        _mix_mw = mw_freq if "mw_freq" in dir() else DEFAULT_MW_FREQUENCY_GHZ
+        if parsed is not None and prep is not None:
+            mix_field = prep.field_mT
+        else:
+            _c0 = 1e3 * 6.62607015e-34 * _mix_mw * 1e9 / (2.0023 * 9.2740100783e-24)  # centre (mT)
+            mix_field = np.linspace(_c0 - 10.0, _c0 + 10.0, 1200)
+        total, weighted = mixtures_mod.simulate_mixture(mix_field, mix_components, ratios=manual,
+                                                        mw_frequency_GHz=_mix_mw, n_orientations=n_orient)
+        traces = {"composite": total}
+        traces.update({_lib[cid].display_name: weighted.get(cid, np.zeros_like(mix_field)) for cid in mix_ids})
+        st.plotly_chart(spectrum_figure(mix_field, traces, "Manual mixture (composite + stacked)"), width="stretch")
+        st.dataframe(pd.DataFrame([
+            {"component": _lib[cid].display_name, "assignment": _lib[cid].radical_assignment,
+             "manual ratio %": round(100.0 * norm[cid], 1)} for cid in mix_ids
+        ]), hide_index=True, width="stretch")
+
+        st.markdown("---")
+        st.markdown("**Automated ratio recovery** (fit the mixture to the loaded spectrum)")
+        if parsed is None or prep is None:
+            st.info("Import and preprocess a spectrum (Import / Preprocess tabs) to enable automated fitting.")
+        else:
+            extra = st.multiselect("Also refine (beyond ratios)", ["linewidths", "g", "hyperfine"],
+                                   default=["linewidths", "g", "hyperfine"], key="mix_fit_extra",
+                                   help="'hyperfine' is esfit-style a-value refinement so a modelled "
+                                        "triplet can match a measured splitting (e.g. 17 G).")
+            fit_mode = "weights" + ("" if not extra else " + " + " + ".join(extra))
+            if st.button("Fit mixture ratios to spectrum", key="mix_fit_btn"):
+                with st.spinner("Fitting mixture ..."):
+                    res = mixtures_mod.fit_mixture_ratios(
+                        prep.field_mT, prep.processed, [c.clone() for c in mix_components],
+                        mw_frequency_GHz=_mix_mw, mode=fit_mode, max_nfev=1200, n_orientations=n_orient)
+                st.metric("Fit R²", f"{res['R2']:.3f}")
+                rows = mixtures_mod.mixture_table(mix_components, res["fractions"])
+                for r in rows:
+                    r["recovered a-values (G)"] = ", ".join(
+                        str(v) for v in res["hyperfine_G"].get(
+                            next((c.component_id for c in mix_components if c.display_name == r["component"]), ""), []))
+                st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
+                st.plotly_chart(spectrum_figure(
+                    res["fit"].field_mT,
+                    {"experimental": res["fit"].experimental, "mixture fit": res["fit"].fit_total},
+                    f"Automated mixture fit (R²={res['R2']:.3f})"), width="stretch")
+                if res["R2"] < 0.6:
+                    st.warning(
+                        "Low R²: this component set does not adequately reproduce the spectrum. "
+                        "A poor mixture fit is **not** evidence for the chosen adducts — try a different "
+                        "model (e.g. a bare nitroxide triplet) and confirm any N-centred adduct with ¹⁵N labelling."
+                    )
+
+with tabs[12]:
     st.subheader("White paper / citation")
     st.write(ABOUT_TEXT)
     st.markdown("**Developer**")

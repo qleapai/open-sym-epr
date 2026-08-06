@@ -140,6 +140,15 @@ def _pack_initial(components: list[SpinComponent], mode: str, baseline_order: in
             lo.append(component.g_bounds[0])
             hi.append(component.g_bounds[1])
             spec.append((component.component_id, "g", None))
+    # esfit-style hyperfine refinement: vary each nucleus A_mT within its bounds.
+    if "hyperfine" in mode_l or "+ a" in mode_l:
+        for component in components:
+            for j, nuc in enumerate(component.nuclei):
+                x0.append(float(nuc.A_mT))
+                b = getattr(nuc, "bounds", None) or (max(0.0, nuc.A_mT * 0.5), nuc.A_mT * 1.5 + 0.5)
+                lo.append(float(b[0]))
+                hi.append(float(b[1]))
+                spec.append((component.component_id, "A_mT", j))
     return x0, lo, hi, spec
 
 
@@ -148,7 +157,7 @@ def _apply_params(components: list[SpinComponent], x: np.ndarray, spec: list[tup
     baseline0 = 0.0
     baseline1 = 0.0
     by_id = {component.component_id: component for component in components}
-    for value, (cid, param, _) in zip(x, spec):
+    for value, (cid, param, meta) in zip(x, spec):
         if param == "weight":
             weights[cid] = float(value)
         elif param == "constant":
@@ -159,6 +168,8 @@ def _apply_params(components: list[SpinComponent], x: np.ndarray, spec: list[tup
             by_id[cid].linewidth_mT = float(value)
         elif param == "g":
             by_id[cid].g = float(value)
+        elif param == "A_mT":
+            by_id[cid].nuclei[int(meta)].A_mT = float(value)
     return weights, baseline0, baseline1
 
 

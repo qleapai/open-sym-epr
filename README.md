@@ -26,10 +26,14 @@ simulation code.
   out-of-distribution guard.
 - **Comprehensive spin-trapping model library** — PBN, PBN/DMSO-derived radicals, DMPO, POBN,
   and ³¹P-bearing DEPMPO adducts across all common radical classes.
+- **Spin-adduct mixtures at adjustable ratios** — compose any set of adducts at **manually
+  entered ratios**, simulate the composite plus stacked contributions, and **automatically
+  recover** the ratios from an experimental spectrum by position-seeded least-squares with
+  optional esfit-style hyperfine refinement (`Adduct mixture` tab).
 - **Native Bruker BES3T (.DTA/.DSC) import**, batch/kinetics, preprocessing, and
   publication-ready export (CSV, figures, reports, ORCA templates).
 - **Project save / resume** — persist and reopen a full working session.
-- Validated against **fifty analytical limits** and a **67-test capability battery**.
+- Validated against **fifty analytical limits** and a **73-test capability battery**.
 
 ## Quick start
 
