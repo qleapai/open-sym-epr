@@ -20,6 +20,7 @@ from epr_simfit.model_comparison import compare_models
 from epr_simfit.model_library import MODEL_DESCRIPTIONS, MODEL_PRESETS, component_table, default_components
 from epr_simfit.model_suggester import ExperimentContext, suggest_models
 from epr_simfit.plotting import comparison_bar_figure, component_figure, residual_figure, spectrum_figure
+from epr_simfit import plotting as plotting_mod
 from epr_simfit.interpretation import (
     SCIENCE_FIT,
     SCIENCE_IMPORT,
@@ -262,6 +263,14 @@ with st.sidebar:
     mw_freq = st.number_input("Microwave frequency / GHz", min_value=1.0, max_value=300.0, step=0.01, key="mw_freq_input",
                               help="X-band ≈ 9.4 GHz, Q-band ≈ 34 GHz, W-band ≈ 94 GHz. Multifrequency-aware: anisotropic patterns scale with frequency.")
     field_unit = st.selectbox("Field unit", ["Auto", "Gauss", "mT"], index=0)
+    _readout_label = st.selectbox(
+        "Cursor readout (hover)", ["Field + Intensity + g", "Field + Intensity", "g-value"],
+        index=0,
+        help="What the crosshair tooltip shows when you hover anywhere on the experimental "
+             "or fitted trace in any plot. g is computed from the field and the microwave "
+             "frequency. This is additive — the data point is always shown.")
+    plotting_mod.HOVER_READOUT = {"Field + Intensity + g": "both", "Field + Intensity": "xy", "g-value": "g"}[_readout_label]
+    plotting_mod.MW_FREQUENCY_GHZ = float(mw_freq)
     advanced = st.checkbox("Advanced fitting controls", value=False)
     st.divider()
     st.header("Powder engine")

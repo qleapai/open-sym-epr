@@ -6,11 +6,44 @@ import numpy as np
 import pandas as pd
 import plotly.graph_objects as go
 
+# Cursor-readout configuration (an ADDITIVE overlay of information on hover — it never
+# removes the default point). The app sets these once per run; call sites need not change.
+#   HOVER_READOUT: "xy" (field+intensity), "g" (field+g-value), or "both".
+#   MW_FREQUENCY_GHZ: microwave frequency used to convert each field point to a g-value.
+HOVER_READOUT = "both"
+MW_FREQUENCY_GHZ: float | None = None
+# g = _PLANCK_GHZ_MT * nu_GHz / B_mT   (h / muB, scaled to GHz and mT)
+_PLANCK_GHZ_MT = 6.62607015e-34 * 1e12 / 9.2740100783e-24  # ~71.447
 
-def spectrum_figure(field, traces: dict[str, np.ndarray], title: str = "EPR spectrum") -> go.Figure:
+
+def _g_values(field, mw_GHz):
+    B = np.asarray(field, dtype=float)
+    with np.errstate(divide="ignore", invalid="ignore"):
+        return np.where(B > 0, _PLANCK_GHZ_MT * float(mw_GHz) / B, np.nan)
+
+
+def _hover_template(readout: str, has_g: bool) -> str:
+    xy = "Field: %{x:.3f} mT<br>Intensity: %{y:.4g}"
+    g = "g: %{customdata:.5f}"
+    if readout == "g" and has_g:
+        body = "Field: %{x:.3f} mT<br>" + g
+    elif readout == "both" and has_g:
+        body = xy + "<br>" + g
+    else:
+        body = xy
+    return body + "<extra>%{fullData.name}</extra>"
+
+
+def spectrum_figure(field, traces: dict[str, np.ndarray], title: str = "EPR spectrum",
+                    readout: str | None = None, mw_frequency_GHz: float | None = None) -> go.Figure:
+    readout = (readout or HOVER_READOUT or "xy").lower()
+    mw = mw_frequency_GHz if mw_frequency_GHz is not None else MW_FREQUENCY_GHZ
+    gvals = _g_values(field, mw) if (mw and readout in ("g", "both")) else None
+    tmpl = _hover_template(readout, gvals is not None)
     fig = go.Figure()
     for name, y in traces.items():
-        fig.add_trace(go.Scatter(x=field, y=y, mode="lines", name=name))
+        fig.add_trace(go.Scatter(x=field, y=y, mode="lines", name=name,
+                                 customdata=gvals, hovertemplate=tmpl))
     fig.update_layout(
         title=title,
         xaxis_title="Magnetic field / mT",
@@ -19,7 +52,12 @@ def spectrum_figure(field, traces: dict[str, np.ndarray], title: str = "EPR spec
         height=430,
         margin=dict(l=54, r=24, t=54, b=48),
         legend=dict(orientation="h", yanchor="bottom", y=1.02, xanchor="left", x=0),
+        hovermode="closest",
     )
+    # Crosshair spikes so a readout appears wherever the cursor sits on a trace.
+    fig.update_xaxes(showspikes=True, spikemode="across", spikethickness=1,
+                     spikedash="dot", spikecolor="#888")
+    fig.update_yaxes(showspikes=True, spikethickness=1, spikedash="dot", spikecolor="#888")
     return fig
 
 
