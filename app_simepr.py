@@ -15,6 +15,7 @@ from epr_simfit.fitter import fit_spectrum
 from epr_simfit.io import parse_epr_text
 from epr_simfit.metadata_parser import metadata_table
 from epr_simfit import mixtures as mixtures_mod
+from epr_simfit import fit_store
 from epr_simfit.model_comparison import compare_models
 from epr_simfit.model_library import MODEL_DESCRIPTIONS, MODEL_PRESETS, component_table, default_components
 from epr_simfit.model_suggester import ExperimentContext, suggest_models
@@ -330,6 +331,75 @@ else:
 if "_pending_field_shift" in st.session_state:
     st.session_state["field_shift_mT"] = st.session_state.pop("_pending_field_shift")
 
+
+def save_fit_ui(source: str, key: str, *, field_mT, experimental, fit_total, components,
+                weights, R2, n_parameters=0, extra=None, default_name=None):
+    """Render a name box + 'Save to global store' button. Any tab can call this to
+    push a completed fit into the session-wide registry (fit_store)."""
+    dn = default_name or f"{source} {source_seq(source)}"
+    c1, c2 = st.columns([3, 1])
+    nm = c1.text_input("Save this fit as", value=dn, key=f"save_name_{key}",
+                       label_visibility="collapsed", placeholder="name this fit")
+    if c2.button("💾 Save to store", key=f"save_btn_{key}"):
+        saved = fit_store.add(st.session_state, nm, field_mT=field_mT, experimental=experimental,
+                              fit_total=fit_total, components=components, weights=weights,
+                              mw_frequency_GHz=mw_freq, R2=R2, source=source,
+                              n_parameters=n_parameters, extra=extra)
+        st.toast(f"Saved '{saved}' to the global fit store.", icon="💾")
+
+
+def source_seq(source: str) -> int:
+    """Small running counter so default names don't collide."""
+    n = sum(1 for k in fit_store.names(st.session_state)) + 1
+    return n
+
+
+def overlay_ui(target_field, key: str):
+    """Multiselect of saved fits; returns overlay traces to merge into a plot dict."""
+    saved = fit_store.names(st.session_state)
+    if not saved:
+        return {}
+    picks = st.multiselect("Overlay saved fits from the global store", saved, key=f"overlay_{key}")
+    inc_exp = False
+    if picks:
+        inc_exp = st.checkbox("also overlay their experimental traces", key=f"overlay_exp_{key}")
+    return fit_store.overlay_traces(st.session_state, picks, target_field, include_experimental=inc_exp)
+
+
+# ── Global fit store manager (sidebar) — load any fit into any plotting tab ──────
+with st.sidebar.expander("🗂 Saved fits (global store)", expanded=False):
+    _reg_names = fit_store.names(st.session_state)
+    if not _reg_names:
+        st.caption("No saved fits yet. Run a fit (Fit, ML-assisted, or Adduct mixture) "
+                   "and click 💾 Save to store.")
+    else:
+        st.dataframe(pd.DataFrame(fit_store.summary_rows(st.session_state)),
+                     hide_index=True, width="stretch")
+        _sel = st.selectbox("Select a saved fit", _reg_names, key="store_select")
+        _b1, _b2 = st.columns(2)
+        if _b1.button("↪ Use as start model", key="store_use_start",
+                      help="Load this fit's refined components as the starting model in "
+                           "Model builder, so you can run a further optimisation from it."):
+            _e = fit_store.get(st.session_state, _sel)
+            if _e:
+                st.session_state["uploaded_model_components"] = [c.clone() for c in _e["components"]]
+                st.session_state["uploaded_model_meta"] = {"from_saved_fit": _sel, "R2": _e["R2"]}
+                st.session_state["_pending_preselect"] = [c.component_id for c in _e["components"]]
+                if _e.get("mw_frequency_GHz"):
+                    st.session_state["mw_freq_input"] = float(_e["mw_frequency_GHz"])
+                st.session_state["_start_model_msg"] = _sel
+                st.rerun()
+        if _b2.button("🗑 Delete", key="store_delete"):
+            fit_store.delete(st.session_state, _sel)
+            st.rerun()
+        _csv = fit_store.export_csv(st.session_state, _sel)
+        if _csv:
+            st.download_button("⬇ CSV (Origin-ready)", data=_csv,
+                               file_name=f"{_sel}.csv", mime="text/csv", key="store_csv")
+if st.session_state.pop("_start_model_msg", None):
+    st.sidebar.success("Loaded saved fit into Model builder as the starting model. "
+                       "Open **Model builder** → adjust if needed → **Fit** to optimise further.")
+
 tabs = st.tabs(["Import", "Metadata", "Preprocess", "Model builder", "Fit", "Compare", "Export", "Batch / kinetics", "References", "Solvers", "ML-assisted fit", "Adduct mixture", "White paper / citation"])
 
 with tabs[0]:
@@ -575,7 +645,17 @@ with tabs[3]:
     uploaded_components = st.session_state.get("uploaded_model_components", [])
     custom_pool = [*uploaded_components, *custom_components]
     component_ids = list(default_components().keys()) + [component.component_id for component in custom_pool]
-    selected_ids = st.multiselect("Components to simulate/fit", component_ids, default=[cid for cid in default_ids if cid in component_ids])
+    # Keyed selection so it can be driven programmatically (e.g. "Use as start model"
+    # from the global fit store) while still resetting when the preset changes.
+    if st.session_state.get("_mb_last_preset") != preset:
+        st.session_state["_mb_last_preset"] = preset
+        st.session_state["model_component_ids"] = [cid for cid in default_ids if cid in component_ids]
+    if "_pending_preselect" in st.session_state:
+        _pend = st.session_state.pop("_pending_preselect")
+        st.session_state["model_component_ids"] = [cid for cid in _pend if cid in component_ids]
+    st.session_state.setdefault("model_component_ids", [cid for cid in default_ids if cid in component_ids])
+    st.session_state["model_component_ids"] = [c for c in st.session_state["model_component_ids"] if c in component_ids]
+    selected_ids = st.multiselect("Components to simulate/fit", component_ids, key="model_component_ids")
     rows = []
     all_by_id = {**default_components(), **{component.component_id: component for component in custom_pool}}
     for cid in selected_ids:
@@ -632,6 +712,7 @@ with tabs[3]:
         st.session_state["n_orient"] = n_orient
         traces = {"experimental processed": prep.processed, "simulation total": sim_total}
         traces.update({cid: weights.get(cid, 1.0) * curve for cid, curve in sim_curves.items()})
+        traces.update(overlay_ui(prep.field_mT, "model_tab"))
         st.plotly_chart(spectrum_figure(prep.field_mT, traces, "Manual simulation"), width="stretch")
 
 with tabs[4]:
@@ -736,8 +817,13 @@ with tabs[4]:
                     _mi = (fit.field_mT >= _mlo) & (fit.field_mT <= _mhi)
                     _mask_show[_mi] = fit.experimental[_mi]
                 _overlay_traces["excluded (masked)"] = _mask_show
+            _overlay_traces.update(overlay_ui(fit.field_mT, "fit_tab"))
             _overlay_fig = spectrum_figure(fit.field_mT, _overlay_traces, "Fit overlay")
             st.plotly_chart(_overlay_fig, use_container_width=True)
+
+            save_fit_ui("Fit", "fit_tab", field_mT=fit.field_mT, experimental=fit.experimental,
+                        fit_total=fit.fit_total, components=fit.components, weights=fit.weights,
+                        R2=fit.metrics.get("R2", float("nan")), n_parameters=fit.n_parameters)
 
             # ── Auto-align from fit overlay ──────────────────────────────────
             _cur_shift = float(st.session_state.get("field_shift_mT", 0.0))
@@ -1512,9 +1598,22 @@ with tabs[10]:
                                **({"a(βH) / G": round(rv["A1_iso"] * 10, 2)} if "A1_iso" in rv else {}),
                                "ΔBpp / mT": round(rv.get("lw", float("nan")), 3),
                                "R²": round(m["R2"], 4)})
-                    st.plotly_chart(spectrum_figure(res.refined.field_mT,
-                                                {"experimental": res.refined.experimental, "ML→physics fit": res.refined.fit},
+                    _ml_traces = {"experimental": res.refined.experimental, "ML→physics fit": res.refined.fit}
+                    _ml_traces.update(overlay_ui(res.refined.field_mT, "ml_tab"))
+                    st.plotly_chart(spectrum_figure(res.refined.field_mT, _ml_traces,
                                                 f"ML-assisted fit (R²={m['R2']:.3f})"), use_container_width=True)
+                    # Build a SpinComponent from the refined parameters so this fit can be
+                    # saved to the global store and reused as a starting model.
+                    _ml_nuclei = [Nucleus(isotope="14N", A_mT=float(rv.get("A0_iso", 0.15)), label="N")]
+                    if "A1_iso" in rv:
+                        _ml_nuclei.append(Nucleus(isotope="1H", A_mT=float(rv["A1_iso"]), label="beta H"))
+                    _ml_comp = SpinComponent(component_id="ml_refined", display_name="ML-refined radical",
+                                             radical_assignment="ML-assisted fit", category="ml",
+                                             g=float(rv.get("g_iso", 2.003)), nuclei=_ml_nuclei,
+                                             linewidth_mT=float(rv.get("lw", 0.1)))
+                    save_fit_ui("ML", "ml_tab", field_mT=res.refined.field_mT,
+                                experimental=res.refined.experimental, fit_total=res.refined.fit,
+                                components=[_ml_comp], weights={"ml_refined": 1.0}, R2=m["R2"])
                 st.caption(res.note)
 
 with tabs[11]:
@@ -1578,20 +1677,27 @@ with tabs[11]:
             fit_mode = "weights" + ("" if not extra else " + " + " + ".join(extra))
             if st.button("Fit mixture ratios to spectrum", key="mix_fit_btn"):
                 with st.spinner("Fitting mixture ..."):
-                    res = mixtures_mod.fit_mixture_ratios(
+                    st.session_state["mixture_fit"] = mixtures_mod.fit_mixture_ratios(
                         prep.field_mT, prep.processed, [c.clone() for c in mix_components],
                         mw_frequency_GHz=_mix_mw, mode=fit_mode, max_nfev=1200, n_orientations=n_orient)
+            res = st.session_state.get("mixture_fit")
+            if res:
                 st.metric("Fit R²", f"{res['R2']:.3f}")
-                rows = mixtures_mod.mixture_table(mix_components, res["fractions"])
+                rows = mixtures_mod.mixture_table(res["fit"].components, res["fractions"])
                 for r in rows:
                     r["recovered a-values (G)"] = ", ".join(
                         str(v) for v in res["hyperfine_G"].get(
-                            next((c.component_id for c in mix_components if c.display_name == r["component"]), ""), []))
+                            next((c.component_id for c in res["fit"].components if c.display_name == r["component"]), ""), []))
                 st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-                st.plotly_chart(spectrum_figure(
-                    res["fit"].field_mT,
-                    {"experimental": res["fit"].experimental, "mixture fit": res["fit"].fit_total},
-                    f"Automated mixture fit (R²={res['R2']:.3f})"), width="stretch")
+                _mix_traces = {"experimental": res["fit"].experimental, "mixture fit": res["fit"].fit_total}
+                _mix_traces.update(overlay_ui(res["fit"].field_mT, "mix_tab"))
+                st.plotly_chart(spectrum_figure(res["fit"].field_mT, _mix_traces,
+                                                f"Automated mixture fit (R²={res['R2']:.3f})"), width="stretch")
+                save_fit_ui("Mixture", "mix_tab", field_mT=res["fit"].field_mT,
+                            experimental=res["fit"].experimental, fit_total=res["fit"].fit_total,
+                            components=res["fit"].components, weights=res["fit"].weights,
+                            R2=res["R2"], n_parameters=res["fit"].n_parameters,
+                            extra={"percent": res["percent"]})
                 if res["R2"] < 0.6:
                     st.warning(
                         "Low R²: this component set does not adequately reproduce the spectrum. "
