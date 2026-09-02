@@ -472,9 +472,9 @@ if _start_msg:
 
 # Export is intentionally the LAST tab. Tabs are keyed by name (TAB["..."]) so the
 # display order here is independent of where each tab's body appears in the code.
-_TAB_LABELS = ["Import", "Metadata", "Preprocess", "Model builder", "Fit", "Compare",
-               "Batch / kinetics", "References", "Solvers", "ML-assisted fit",
-               "Adduct mixture", "White paper / citation", "Export"]
+_TAB_LABELS = ["Import", "Metadata", "Preprocess", "Adduct mixture", "Model builder",
+               "Fit", "Compare", "Batch / kinetics", "References", "Solvers",
+               "ML-assisted fit", "White paper / citation", "Export"]
 TAB = dict(zip(_TAB_LABELS, st.tabs(_TAB_LABELS)))
 
 with TAB["Import"]:
@@ -1873,9 +1873,10 @@ with TAB["Adduct mixture"]:
                            for cid in mix_ids},
             "ratios": {_man_names[cid]: round(100.0 * norm[cid], 2) for cid in mix_ids},
         }
-        if st.button("↪ Load this manual mixture into Fit tab", key="mix_to_fit",
+        if st.button("↪ Load this mixture into Model builder", key="mix_to_fit",
                      help="Send these components with their manual ratios as the starting model "
-                          "in Model builder, then run a full fit in the Fit tab."):
+                          "in Model builder (the next tab), then run a fit in the Fit tab. "
+                          "Or skip this and build a model directly in Model builder."):
             _start = []
             for cid in mix_ids:
                 c = _lib[cid].clone()
