@@ -797,17 +797,28 @@ with TAB["Fit"]:
     if parsed is None or prep is None or not selected_components:
         st.info("Import, preprocess, and select components first.")
     else:
+        fit_method = st.radio(
+            "Fitting method", ["Physics (least-squares)", "Physics + Monte-Carlo",
+                               "ML-assisted (NN → physics)"],
+            horizontal=True, key="fit_method",
+            help="Physics = bounded least-squares on your selected components. "
+                 "Monte-Carlo adds bootstrap uncertainties (publication-grade). "
+                 "ML-assisted uses a neural initialiser (single-radical nitroxide model) "
+                 "then physics-refines — all results land here for the same analysis and export.")
+        _is_ml = fit_method.startswith("ML")
         fc1, fc2, fc3 = st.columns(3)
-        mode = fc1.selectbox("Fit mode", ["weights only", "weights + linewidths", "weights + linewidths + g"], index=0)
-        baseline_order = fc2.selectbox("Baseline in fit", [0, 1], index=0)
+        mode = fc1.selectbox("Fit mode", ["weights only", "weights + linewidths", "weights + linewidths + g"],
+                             index=0, disabled=_is_ml,
+                             help="Ignored for ML-assisted (it refines g, hyperfine and linewidth automatically).")
+        baseline_order = fc2.selectbox("Baseline in fit", [0, 1], index=0, disabled=_is_ml)
         max_eval = fc3.number_input("Max evaluations", min_value=100, max_value=5000, value=700, step=100)
-        mcc1, mcc2, mcc3 = st.columns(3)
-        mc_on = mcc1.checkbox("Monte-Carlo error bars", value=False,
-                              help="Bootstrap uncertainties by refitting noise realisations — captures nonlinearity "
-                                   "and parameter correlations, unlike linearised errors. Slower (recommended for publication).")
-        mc_n = mcc2.number_input("MC realisations", min_value=20, max_value=500, value=50, step=10, disabled=not mc_on)
-        mc_noise = mcc3.selectbox("MC noise model", ["gaussian", "residual"], disabled=not mc_on,
+        _mc_method_on = fit_method == "Physics + Monte-Carlo"
+        mcc1, mcc2 = st.columns(2)
+        mc_n = mcc1.number_input("MC realisations", min_value=20, max_value=500, value=50, step=10,
+                                 disabled=not _mc_method_on)
+        mc_noise = mcc2.selectbox("MC noise model", ["gaussian", "residual"], disabled=not _mc_method_on,
                                   help="gaussian: add Gaussian noise of the residual std; residual: resample fit residuals.")
+        mc_on = _mc_method_on
 
         # ── Spectral masking ──────────────────────────────────────────────────
         with st.expander("Spectral masking — exclude field regions from fit optimization", expanded=False):
@@ -852,20 +863,55 @@ with TAB["Fit"]:
             _spinner_msg = "Re-fitting with aligned field..." if _auto_refit else (
                 f"Fitting on {len(_use_field)} points ({_n_excl} masked)..." if _n_excl else "Fitting..."
             )
-            with st.spinner(_spinner_msg):
-                fit = fit_spectrum(
-                    _use_field,
-                    _use_exp,
-                    preset=preset,
-                    components=selected_components,
-                    mw_frequency_GHz=mw_freq,
-                    mode=mode,
-                    baseline_order=int(baseline_order),
-                    max_nfev=int(max_eval),
-                    n_orientations=st.session_state.get("n_orient", 1000),
-                    n_monte_carlo=int(mc_n) if mc_on else 0,
-                    mc_method=mc_noise if mc_on else "gaussian",
-                )
+            with st.spinner("Neural init → physics refine..." if _is_ml else _spinner_msg):
+                if _is_ml:
+                    # ML-assisted: neural initialiser (single-radical nitroxide) seeds a
+                    # physics fit_spectrum so the result is a normal FitResult that flows
+                    # into the same analysis, save, and export path as every other method.
+                    from epr_simfit import ml_fitting as _mlf
+                    if not _mlf._OSP:
+                        st.error("ML engine unavailable; use a Physics method.")
+                        st.stop()
+                    _est = st.session_state.get("ml_est")
+                    if _est is None and _mlf.default_model_path().exists():
+                        _est = _mlf.load_estimator(_mlf.default_model_path())
+                    if _est is None:
+                        _est = _mlf.get_or_train_default(mw_GHz=float(mw_freq))
+                    st.session_state["ml_est"] = _est
+                    _mlr = _mlf.ml_assisted_fit(_est, _use_field, _use_exp, mw_GHz=float(mw_freq))
+                    _ne = _mlr.nn_estimate
+                    _ml_nuclei = [Nucleus(isotope="14N", A_mT=float(_ne["aN_mT"]), label="N",
+                                          bounds=(max(_ne["aN_mT"] - 0.3, 0.05), _ne["aN_mT"] + 0.3))]
+                    if _ne.get("aH_mT", 0.0) > 0.03:
+                        _ml_nuclei.append(Nucleus(isotope="1H", A_mT=float(_ne["aH_mT"]), label="beta H",
+                                                  bounds=(0.02, _ne["aH_mT"] + 0.3)))
+                    _ml_seed = SpinComponent(component_id="ml_nitroxide",
+                                             display_name="ML radical (NN init)",
+                                             radical_assignment="ML-assisted", category="ml",
+                                             g=float(_ne["g"]), g_bounds=(_ne["g"] - 0.003, _ne["g"] + 0.003),
+                                             nuclei=_ml_nuclei, linewidth_mT=float(_ne["lw_mT"]), eta=float(_ne.get("eta", 0.5)))
+                    st.session_state["_ml_ood"] = (_mlr.ood_flag, _mlr.ood_R2, _mlr.note)
+                    fit = fit_spectrum(
+                        _use_field, _use_exp, components=[_ml_seed], mw_frequency_GHz=mw_freq,
+                        mode="weights + linewidths + g + hyperfine", baseline_order=int(baseline_order),
+                        max_nfev=int(max_eval), n_orientations=st.session_state.get("n_orient", 1000),
+                        n_monte_carlo=int(mc_n) if mc_on else 0, mc_method=mc_noise if mc_on else "gaussian",
+                    )
+                else:
+                    st.session_state.pop("_ml_ood", None)
+                    fit = fit_spectrum(
+                        _use_field,
+                        _use_exp,
+                        preset=preset,
+                        components=selected_components,
+                        mw_frequency_GHz=mw_freq,
+                        mode=mode,
+                        baseline_order=int(baseline_order),
+                        max_nfev=int(max_eval),
+                        n_orientations=st.session_state.get("n_orient", 1000),
+                        n_monte_carlo=int(mc_n) if mc_on else 0,
+                        mc_method=mc_noise if mc_on else "gaussian",
+                    )
                 # Re-evaluate on FULL grid for display (masked fit gives parameters only)
                 if _n_excl > 0:
                     from dataclasses import replace as _dc_replace
@@ -884,6 +930,11 @@ with TAB["Fit"]:
 
         fit = st.session_state.get("fit")
         if fit:
+            _ood = st.session_state.get("_ml_ood")
+            if _ood is not None:
+                _oflag, _oR2, _onote = _ood
+                (st.warning if _oflag else st.info)(
+                    f"ML-assisted initialisation — reconstruction R²={_oR2:.2f}. {_onote}")
             # ── Fit overlay ──────────────────────────────────────────────────
             _overlay_traces = {"experimental": fit.experimental, "fit": fit.fit_total}
             if _fit_masks:
