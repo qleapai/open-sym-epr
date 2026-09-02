@@ -11,6 +11,7 @@ from epr_simfit.about import ABOUT_TEXT, DETAILED_INFO, SHORT_CREDIT
 from epr_simfit.constants import DEFAULT_MW_FREQUENCY_GHZ
 from epr_simfit.demo_data import DEMO_CONDITIONS, generate_demo_text
 from epr_simfit.export import build_export_zip, fit_components_dataframe
+from epr_simfit import pub_export
 from epr_simfit.fitter import fit_spectrum
 from epr_simfit.io import parse_epr_text
 from epr_simfit.metadata_parser import metadata_table
@@ -434,9 +435,14 @@ if _start_msg:
     st.sidebar.success(f"Loaded {_start_msg} into Model builder as the starting model. "
                        "Open **Model builder** → adjust if needed → **Fit** to optimise further.")
 
-tabs = st.tabs(["Import", "Metadata", "Preprocess", "Model builder", "Fit", "Compare", "Export", "Batch / kinetics", "References", "Solvers", "ML-assisted fit", "Adduct mixture", "White paper / citation"])
+# Export is intentionally the LAST tab. Tabs are keyed by name (TAB["..."]) so the
+# display order here is independent of where each tab's body appears in the code.
+_TAB_LABELS = ["Import", "Metadata", "Preprocess", "Model builder", "Fit", "Compare",
+               "Batch / kinetics", "References", "Solvers", "ML-assisted fit",
+               "Adduct mixture", "White paper / citation", "Export"]
+TAB = dict(zip(_TAB_LABELS, st.tabs(_TAB_LABELS)))
 
-with tabs[0]:
+with TAB["Import"]:
     st.subheader("Import")
     with st.expander("📖 Scientific background — cw-EPR fundamentals", expanded=False):
         st.markdown(SCIENCE_IMPORT)
@@ -475,7 +481,7 @@ with tabs[0]:
         st.dataframe(parsed.dataframe.head(500), width="stretch")
         st.plotly_chart(spectrum_figure(parsed.dataframe["Field_mT"], {"raw": parsed.dataframe["Intensity_raw"]}, "Raw EPR spectrum"), width="stretch")
 
-with tabs[1]:
+with TAB["Metadata"]:
     st.subheader("Metadata and suggested models")
     meta_rows = [
         ("Project", project_title),
@@ -505,7 +511,7 @@ with tabs[1]:
         )
     st.dataframe(pd.DataFrame(cards), width="stretch")
 
-with tabs[2]:
+with TAB["Preprocess"]:
     st.subheader("Preprocess")
     with st.expander("📖 Scientific background — baseline correction, normalisation & field alignment", expanded=False):
         st.markdown(SCIENCE_PREPROCESS)
@@ -615,7 +621,7 @@ with tabs[2]:
                     use_container_width=True,
                 )
 
-with tabs[3]:
+with TAB["Model builder"]:
     st.subheader("Model builder")
     with st.expander("📖 Scientific background — isotropic cw-EPR simulation", expanded=False):
         st.markdown(SCIENCE_MODELBUILDER)
@@ -749,7 +755,7 @@ with tabs[3]:
         traces.update(overlay_ui(prep.field_mT, "model_tab"))
         st.plotly_chart(spectrum_figure(prep.field_mT, traces, "Manual simulation"), width="stretch")
 
-with tabs[4]:
+with TAB["Fit"]:
     st.subheader("Fit")
     with st.expander("📖 Scientific background — fitting algorithm, parameters & statistics", expanded=False):
         st.markdown(SCIENCE_FIT)
@@ -1059,7 +1065,7 @@ with tabs[4]:
             )
             st.warning("Fit quality is not chemical proof. Validate with standards, controls, isotope/substitution tests, and chemistry-specific constraints.")
 
-with tabs[5]:
+with TAB["Compare"]:
     st.subheader("Compare")
     st.caption(
         "Save fits using **💾 Save fit to comparison** in the Fit tab after each run "
@@ -1156,8 +1162,74 @@ Use model comparison as a guide; chemical validation always takes precedence.
                 st.dataframe(_bc, use_container_width=True)
                 st.plotly_chart(comparison_bar_figure(_bc, "BIC"), use_container_width=True)
 
-with tabs[6]:
+with TAB["Export"]:
     st.subheader("Export")
+
+    # ── Publication export: choose which results to bundle ────────────────────
+    st.markdown("### Publication export — choose what to include")
+    st.caption("Bundle the manual mixture, the automated fit, or both — each with its "
+               "decomposed data (CSV), parameter/ratio table (CSV), and 600-dpi figures.")
+
+    def _fit_component_dict(_fit):
+        _names = {c.component_id: c.display_name for c in _fit.components}
+        return {_names.get(cid, cid): float(_fit.weights.get(cid, 1.0)) * np.asarray(curve, float)
+                for cid, curve in _fit.component_curves.items()}
+
+    _avail = {}
+    _mainfit = st.session_state.get("fit")
+    if _mainfit is not None:
+        _avail["Main fit"] = ("fit", _mainfit)
+    _mixres = st.session_state.get("mixture_fit")
+    if _mixres is not None:
+        _avail["Mixture fit"] = ("mixture", _mixres)
+    _manmix = st.session_state.get("manual_mixture")
+    if _manmix is not None:
+        _avail["Manual mixture"] = ("manual", _manmix)
+
+    if not _avail:
+        st.info("No results yet. Run a **Fit**, an **Adduct-mixture** fit, or build a "
+                "**manual mixture** — then return here to export.")
+    else:
+        _pick = st.multiselect("Results to export", list(_avail.keys()),
+                               default=list(_avail.keys()), key="pub_export_pick")
+        if st.button("📦 Prepare publication export", key="pub_export_btn") and _pick:
+            items = {}
+            for label in _pick:
+                kind, obj = _avail[label]
+                if kind == "fit":
+                    items[label] = {"kind": "fit", "field_mT": obj.field_mT,
+                                    "experimental": obj.experimental, "total": obj.fit_total,
+                                    "components": _fit_component_dict(obj),
+                                    "params_df": obj.parameters, "R2": obj.metrics.get("R2")}
+                elif kind == "mixture":
+                    f = obj["fit"]
+                    _pct = obj.get("percent", {})
+                    _nm = {c.component_id: c.display_name for c in f.components}
+                    _ratio_df = pd.DataFrame([{"component": _nm.get(cid, cid),
+                                               "fraction_%": round(_pct.get(cid, 0.0), 2),
+                                               "a_values_G": ", ".join(str(v) for v in obj.get("hyperfine_G", {}).get(cid, []))}
+                                              for cid in f.weights])
+                    items[label] = {"kind": "mixture", "field_mT": f.field_mT,
+                                    "experimental": f.experimental, "total": f.fit_total,
+                                    "components": _fit_component_dict(f),
+                                    "params_df": _ratio_df, "R2": obj.get("R2")}
+                else:  # manual
+                    _ratio_df = pd.DataFrame([{"component": k, "ratio_%": v}
+                                              for k, v in obj.get("ratios", {}).items()])
+                    items[label] = {"kind": "manual", "field_mT": obj["field_mT"],
+                                    "experimental": obj.get("experimental"), "total": obj["total"],
+                                    "components": obj.get("components", {}), "params_df": _ratio_df}
+            with st.spinner("Rendering 600-dpi figures and building the ZIP..."):
+                st.session_state["pub_export_zip"] = pub_export.build_selection_zip(
+                    items, meta={"software": "Open-Sym-EPR", "project": project_title,
+                                 "sample": sample_name, "mw_frequency_GHz": mw_freq})
+        st.download_button("⬇ Download publication export ZIP",
+                           data=st.session_state.get("pub_export_zip", b""),
+                           file_name="Open-Sym-EPR_publication_export.zip", mime="application/zip",
+                           disabled="pub_export_zip" not in st.session_state, key="pub_export_dl")
+    st.divider()
+    st.markdown("### Full report package (metadata, report, citation, templates)")
+
     fit = st.session_state.get("fit")
     comparison = st.session_state.get("comparison")
     processed = None
@@ -1227,7 +1299,7 @@ with tabs[6]:
     st.caption("Export includes fit metrics, model metrics, all plotted datasets as CSV, figures, reports, citation files, EasySpin script, and ORCA templates where a fit is available.")
     st.download_button("Download Open-Sym-EPR export ZIP", data=st.session_state.get("export_zip", b""), file_name="Open-Sym-EPR_export.zip", mime="application/zip", disabled="export_zip" not in st.session_state)
 
-with tabs[7]:
+with TAB["Batch / kinetics"]:
     st.subheader("Batch / kinetics — fixed model across a spectrum series")
     st.caption(
         "Apply one fixed model to a time series, catalyst series, potential series, or dose series. "
@@ -1290,7 +1362,7 @@ with tabs[7]:
             st.download_button("⬇ Kinetic plot (PNG)", data=kinetic_plot_png(result),
                                file_name="Open-Sym-EPR_kinetics.png", mime="image/png")
 
-with tabs[8]:
+with TAB["References"]:
     st.subheader("Reference standards — validate against known systems")
     st.caption(
         "Literature reference standards (DPPH, TEMPO, Mn(II), Cu(II), vanadyl, PBN-OH) "
@@ -1319,7 +1391,7 @@ with tabs[8]:
                        data=pd.DataFrame({"Field_mT": rfield, "Intensity": rsim}).to_csv(index=False).encode(),
                        file_name=f"OpenSymEPR_reference_{ref_key}.csv", mime="text/csv")
 
-with tabs[9]:
+with TAB["Solvers"]:
     st.subheader("Solvers — native Python spin-Hamiltonian engine, running live in this tab")
     from epr_simfit import native_solvers as nsv
     import plotly.graph_objects as go
@@ -1527,7 +1599,7 @@ with tabs[9]:
                                        pd.DataFrame({r["xlabel"]: r["x"], r["ylabel"]: r["y"]}).to_csv(index=False).encode(),
                                        "native_curry.csv", "text/csv", key="dl_curry")
 
-with tabs[10]:
+with TAB["ML-assisted fit"]:
     st.subheader("ML-assisted fit — physics-grounded neural initialisation")
     st.caption("A neural network trained **only on spin-Hamiltonian–simulated spectra** predicts an "
                "initial estimate; the **physics least-squares fit then refines and validates it**, and an "
@@ -1650,7 +1722,7 @@ with tabs[10]:
                                 components=[_ml_comp], weights={"ml_refined": 1.0}, R2=m["R2"])
                 st.caption(res.note)
 
-with tabs[11]:
+with TAB["Adduct mixture"]:
     st.subheader("Spin-adduct mixture — manual ratios & automated recovery")
     st.markdown(
         "Compose any set of spin-trap adducts (or other components) at **user-defined ratios**, "
@@ -1705,6 +1777,16 @@ with tabs[11]:
         decomposition_download(
             decomposition_dataframe(mix_field, weighted, None, _man_names, total=total),
             key="manual_mixture", label="⬇ Save manual-mixture decomposition CSV")
+        # Persist for the Export tab (publication export of the manual mixture)
+        st.session_state["manual_mixture"] = {
+            "field_mT": np.asarray(mix_field, dtype=float),
+            "total": np.asarray(total, dtype=float),
+            "experimental": (np.asarray(prep.processed, dtype=float)
+                             if (parsed is not None and prep is not None) else None),
+            "components": {_man_names[cid]: np.asarray(weighted.get(cid, np.zeros_like(mix_field)), dtype=float)
+                           for cid in mix_ids},
+            "ratios": {_man_names[cid]: round(100.0 * norm[cid], 2) for cid in mix_ids},
+        }
         if st.button("↪ Load this manual mixture into Fit tab", key="mix_to_fit",
                      help="Send these components with their manual ratios as the starting model "
                           "in Model builder, then run a full fit in the Fit tab."):
@@ -1770,7 +1852,7 @@ with tabs[11]:
                         "model (e.g. a bare nitroxide triplet) and confirm any N-centred adduct with ¹⁵N labelling."
                     )
 
-with tabs[12]:
+with TAB["White paper / citation"]:
     st.subheader("White paper / citation")
     st.write(ABOUT_TEXT)
     st.markdown("**Developer**")
