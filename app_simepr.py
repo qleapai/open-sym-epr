@@ -17,6 +17,7 @@ from epr_simfit.io import parse_epr_text
 from epr_simfit.metadata_parser import metadata_table
 from epr_simfit import mixtures as mixtures_mod
 from epr_simfit import fit_store
+from epr_simfit import fig_export
 from epr_simfit.model_comparison import compare_models
 from epr_simfit.model_library import MODEL_DESCRIPTIONS, MODEL_PRESETS, component_table, default_components
 from epr_simfit.model_suggester import ExperimentContext, suggest_models
@@ -364,6 +365,40 @@ def source_seq(source: str) -> int:
     return n
 
 
+_RF_COUNTER = {"n": 0}
+
+
+def render_figure(fig, use_container_width=None, width=None, key=None, config=None):
+    """Render a Plotly chart and offer PNG / SVG / CSV export for it (all tabs).
+    Drop-in for st.plotly_chart; tolerates its width/use_container_width kwargs."""
+    _RF_COUNTER["n"] += 1
+    k = key or f"plot{_RF_COUNTER['n']}"
+    st.plotly_chart(fig, width="stretch",
+                    config={"displaylogo": False,
+                            "toImageButtonOptions": {"format": "png", "scale": 3}})
+    with st.expander("⬇ Export this plot (PNG / SVG / CSV)", expanded=False):
+        try:
+            st.download_button("CSV data", fig_export.fig_to_csv(fig).encode("utf-8"),
+                               file_name=f"{k}.csv", mime="text/csv", key=f"{k}_csv")
+        except Exception as exc:  # noqa: BLE001
+            st.caption(f"CSV export unavailable: {exc}")
+        if st.button("Render PNG / SVG", key=f"{k}_render"):
+            try:
+                st.session_state[f"{k}_png"] = fig_export.fig_to_image(fig, "png")
+                st.session_state[f"{k}_svg"] = fig_export.fig_to_image(fig, "svg")
+                st.session_state.pop(f"{k}_imgerr", None)
+            except Exception as exc:  # noqa: BLE001
+                st.session_state[f"{k}_imgerr"] = str(exc)
+        if f"{k}_png" in st.session_state:
+            _pc1, _pc2 = st.columns(2)
+            _pc1.download_button("PNG (600 dpi)", st.session_state[f"{k}_png"],
+                                 file_name=f"{k}.png", mime="image/png", key=f"{k}_pngdl")
+            _pc2.download_button("SVG (vector)", st.session_state[f"{k}_svg"],
+                                 file_name=f"{k}.svg", mime="image/svg+xml", key=f"{k}_svgdl")
+        if st.session_state.get(f"{k}_imgerr"):
+            st.caption("Image export error: " + st.session_state[f"{k}_imgerr"])
+
+
 def decomposition_dataframe(field, component_curves: dict, weights: dict, names: dict,
                             experimental=None, total=None) -> pd.DataFrame:
     """Build a wide table: Field_mT, (experimental), (total/composite), then one column
@@ -479,7 +514,7 @@ with TAB["Import"]:
         with st.expander("Header text"):
             st.text(parsed.header_text or "(no non-numeric header detected)")
         st.dataframe(parsed.dataframe.head(500), width="stretch")
-        st.plotly_chart(spectrum_figure(parsed.dataframe["Field_mT"], {"raw": parsed.dataframe["Intensity_raw"]}, "Raw EPR spectrum"), width="stretch")
+        render_figure(spectrum_figure(parsed.dataframe["Field_mT"], {"raw": parsed.dataframe["Intensity_raw"]}, "Raw EPR spectrum"), width="stretch")
 
 with TAB["Metadata"]:
     st.subheader("Metadata and suggested models")
@@ -556,7 +591,7 @@ with TAB["Preprocess"]:
         )
 
         preprocess_title = "Preprocessing" + (f"  ·  field shift {field_shift:+.3f} mT" if field_shift else "")
-        st.plotly_chart(
+        render_figure(
             spectrum_figure(
                 prep.field_mT,
                 {"raw window": prep.raw, "baseline corrected": prep.corrected, "processed": prep.processed, "display": prep.display},
@@ -612,7 +647,7 @@ with TAB["Preprocess"]:
             if _sp is not None:
                 _sf, _st2 = _sp
                 _sim_live = np.interp(prep.field_mT, _sf, _st2)
-                st.plotly_chart(
+                render_figure(
                     spectrum_figure(
                         prep.field_mT,
                         {"experimental (shifted)": prep.processed, "simulation": _sim_live},
@@ -753,7 +788,7 @@ with TAB["Model builder"]:
         traces = {"experimental processed": prep.processed, "simulation total": sim_total}
         traces.update({cid: weights.get(cid, 1.0) * curve for cid, curve in sim_curves.items()})
         traces.update(overlay_ui(prep.field_mT, "model_tab"))
-        st.plotly_chart(spectrum_figure(prep.field_mT, traces, "Manual simulation"), width="stretch")
+        render_figure(spectrum_figure(prep.field_mT, traces, "Manual simulation"), width="stretch")
 
 with TAB["Fit"]:
     st.subheader("Fit")
@@ -859,7 +894,7 @@ with TAB["Fit"]:
                 _overlay_traces["excluded (masked)"] = _mask_show
             _overlay_traces.update(overlay_ui(fit.field_mT, "fit_tab"))
             _overlay_fig = spectrum_figure(fit.field_mT, _overlay_traces, "Fit overlay")
-            st.plotly_chart(_overlay_fig, use_container_width=True)
+            render_figure(_overlay_fig, use_container_width=True)
 
             save_fit_ui("Fit", "fit_tab", field_mT=fit.field_mT, experimental=fit.experimental,
                         fit_total=fit.fit_total, components=fit.components, weights=fit.weights,
@@ -926,7 +961,7 @@ with TAB["Fit"]:
 
             # ── Component decomposition ───────────────────────────────────────
             _comp_fig = component_figure(fit.field_mT, fit.component_curves, fit.weights)
-            st.plotly_chart(_comp_fig, use_container_width=True)
+            render_figure(_comp_fig, use_container_width=True)
 
             # ── Extend model and refit ────────────────────────────────────────
             _fitted_ids = [c.component_id for c in fit.components]
@@ -1100,7 +1135,7 @@ with TAB["Compare"]:
         # ── BIC bar chart ─────────────────────────────────────────────────────
         _cmp_for_bar = _sf_df.rename(columns={"Model": "model"})[["model", "BIC", "AIC", "R2", "ΔBIC", "ΔAIC"]]
         _metric_sel = st.radio("Plot metric", ["BIC", "AIC", "R2"], horizontal=True, index=0)
-        st.plotly_chart(comparison_bar_figure(_cmp_for_bar, _metric_sel), use_container_width=True)
+        render_figure(comparison_bar_figure(_cmp_for_bar, _metric_sel), use_container_width=True)
 
         # ── Overlay all saved fits on experimental spectrum ───────────────────
         if parsed is not None and prep is not None:
@@ -1109,7 +1144,7 @@ with TAB["Compare"]:
                 for _lbl, _sf in _saved_fits.items():
                     _ov_traces[_lbl] = np.interp(prep.field_mT, _sf.field_mT, _sf.fit_total)
                 _ov_fig = spectrum_figure(prep.field_mT, _ov_traces, "All saved fits vs experimental")
-                st.plotly_chart(_ov_fig, use_container_width=True)
+                render_figure(_ov_fig, use_container_width=True)
                 st.download_button(
                     "⬇ Export comparison overlay (HTML)",
                     data=_ov_fig.to_html(include_plotlyjs="cdn").encode(),
@@ -1160,7 +1195,7 @@ Use model comparison as a guide; chemical validation always takes precedence.
             _bc = st.session_state.get("batch_comparison")
             if _bc is not None and not _bc.empty:
                 st.dataframe(_bc, use_container_width=True)
-                st.plotly_chart(comparison_bar_figure(_bc, "BIC"), use_container_width=True)
+                render_figure(comparison_bar_figure(_bc, "BIC"), use_container_width=True)
 
 with TAB["Export"]:
     st.subheader("Export")
@@ -1385,7 +1420,7 @@ with TAB["References"]:
         rsim, _ = simulate_model(rfield, [rcomp], {rcomp.component_id: 1.0},
                                  mw_frequency_GHz=ref.mw_freq_GHz,
                                  n_orientations=st.session_state.get("n_orient", 1000))
-    st.plotly_chart(spectrum_figure(rfield, {ref.name: rsim}, f"{ref.name} (Open-Sym-EPR simulation)"),
+    render_figure(spectrum_figure(rfield, {ref.name: rsim}, f"{ref.name} (Open-Sym-EPR simulation)"),
                     use_container_width=True)
     st.download_button("⬇ Reference spectrum (CSV)",
                        data=pd.DataFrame({"Field_mT": rfield, "Intensity": rsim}).to_csv(index=False).encode(),
@@ -1485,7 +1520,7 @@ with TAB["Solvers"]:
                         st.session_state["es_garlic"] = nsv.run_garlic(es_system, fmin, fmax, mw_freq, glw, geta)
                 r = st.session_state.get("es_garlic")
                 if r:
-                    st.plotly_chart(_native_fig(r["x"], {"garlic": r["y"]}, r["xlabel"], r["ylabel"],
+                    render_figure(_native_fig(r["x"], {"garlic": r["y"]}, r["xlabel"], r["ylabel"],
                                                 f"garlic — isotropic cw-EPR (ν = {mw_freq} GHz)"),
                                     use_container_width=True)
                     st.download_button("⬇ garlic spectrum (CSV)",
@@ -1507,7 +1542,7 @@ with TAB["Solvers"]:
                         st.session_state["es_pepper"] = nsv.run_pepper(es_system, pfmin, pfmax, mw_freq, plw, peta, n_orient=pn)
                 r = st.session_state.get("es_pepper")
                 if r:
-                    st.plotly_chart(_native_fig(r["x"], {"pepper": r["y"]}, r["xlabel"], r["ylabel"],
+                    render_figure(_native_fig(r["x"], {"pepper": r["y"]}, r["xlabel"], r["ylabel"],
                                                 f"pepper — powder cw-EPR (ν = {mw_freq} GHz)"),
                                     use_container_width=True)
                     st.download_button("⬇ pepper spectrum (CSV)",
@@ -1530,7 +1565,7 @@ with TAB["Solvers"]:
                             st.session_state["es_salt"] = nsv.run_salt(es_system, sfield, srfmax, mw_freq, srflw, n_orient=sn)
                     r = st.session_state.get("es_salt")
                     if r:
-                        st.plotly_chart(_native_fig(r["x"], {"ENDOR": r["y"]}, r["xlabel"], r["ylabel"],
+                        render_figure(_native_fig(r["x"], {"ENDOR": r["y"]}, r["xlabel"], r["ylabel"],
                                                     f"salt — ENDOR at {sfield} mT"), use_container_width=True)
                         st.caption("Peaks at |ν_n ± A/2| (weak coupling) or |A/2 ± ν_n| (strong coupling).")
                         st.download_button("⬇ ENDOR (CSV)",
@@ -1587,7 +1622,7 @@ with TAB["Solvers"]:
                 rc = st.session_state.get("es_curry")
                 if rc:
                     _mode, r = rc
-                    st.plotly_chart(_native_fig(r["x"], {_mode: r["y"]}, r["xlabel"], r["ylabel"],
+                    render_figure(_native_fig(r["x"], {_mode: r["y"]}, r["xlabel"], r["ylabel"],
                                                 f"curry — {_mode}"), use_container_width=True)
                     _g0c = g_iso if g_iso is not None else (sum(g_tensor) / 3.0)
                     if _mode.startswith("χT"):
@@ -1675,7 +1710,7 @@ with TAB["ML-assisted fit"]:
                 st.write({"g": round(p["g"], 5), "a(¹⁴N) / G": round(p["aN_G"], 2),
                           "a(βH) / G": round(p["aH_G"], 2), "ΔBpp / mT": round(p["lw_mT"], 3),
                           "R² (reconstruction)": round(dres.R2, 4)})
-                st.plotly_chart(spectrum_figure(prep.field_mT,
+                render_figure(spectrum_figure(prep.field_mT,
                                                 {"experimental": prep.processed / (np.max(np.abs(prep.processed)) or 1),
                                                  "ML-driven reconstruction": dres.fit},
                                                 f"ML-driven fit (reconstruction R²={dres.R2:.3f})"),
@@ -1706,7 +1741,7 @@ with TAB["ML-assisted fit"]:
                                "R²": round(m["R2"], 4)})
                     _ml_traces = {"experimental": res.refined.experimental, "ML→physics fit": res.refined.fit}
                     _ml_traces.update(overlay_ui(res.refined.field_mT, "ml_tab"))
-                    st.plotly_chart(spectrum_figure(res.refined.field_mT, _ml_traces,
+                    render_figure(spectrum_figure(res.refined.field_mT, _ml_traces,
                                                 f"ML-assisted fit (R²={m['R2']:.3f})"), use_container_width=True)
                     # Build a SpinComponent from the refined parameters so this fit can be
                     # saved to the global store and reused as a starting model.
@@ -1766,7 +1801,7 @@ with TAB["Adduct mixture"]:
         traces = {"composite": total}
         traces.update({_lib[cid].display_name: weighted.get(cid, np.zeros_like(mix_field)) for cid in mix_ids})
         traces.update(overlay_ui(mix_field, "mix_manual"))
-        st.plotly_chart(spectrum_figure(mix_field, traces, "Manual mixture (composite + stacked)"), width="stretch")
+        render_figure(spectrum_figure(mix_field, traces, "Manual mixture (composite + stacked)"), width="stretch")
         st.markdown("**Ratio table**")
         st.dataframe(pd.DataFrame([
             {"component": _lib[cid].display_name, "assignment": _lib[cid].radical_assignment,
@@ -1827,12 +1862,12 @@ with TAB["Adduct mixture"]:
                 st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
                 _mix_traces = {"experimental": res["fit"].experimental, "mixture fit": res["fit"].fit_total}
                 _mix_traces.update(overlay_ui(res["fit"].field_mT, "mix_tab"))
-                st.plotly_chart(spectrum_figure(res["fit"].field_mT, _mix_traces,
+                render_figure(spectrum_figure(res["fit"].field_mT, _mix_traces,
                                                 f"Automated mixture fit (R²={res['R2']:.3f})"), width="stretch")
                 # Decomposed contributions (plot + copyable/saveable table)
                 _fit_names = {c.component_id: c.display_name for c in res["fit"].components}
                 st.markdown("**Decomposed fit** (each weighted component)")
-                st.plotly_chart(component_figure(res["fit"].field_mT, res["fit"].component_curves,
+                render_figure(component_figure(res["fit"].field_mT, res["fit"].component_curves,
                                                  res["fit"].weights), width="stretch")
                 st.markdown("**Decomposed data** (experimental, fit, residual + each component — copy or save)")
                 decomposition_download(
