@@ -247,6 +247,17 @@ with st.sidebar:
                     from epr_simfit.user_models import components_from_json
                     _c, _ = components_from_json(obj["components_json"])
                     st.session_state["uploaded_model_components"] = _c
+                # Restore the manual spin-adduct mixture + its fitting conditions
+                _mix = obj.get("mixture") or {}
+                if _mix.get("component_ids"):
+                    st.session_state["mix_component_ids"] = list(_mix["component_ids"])
+                    for _cid, _val in (_mix.get("ratios") or {}).items():
+                        st.session_state[f"mix_ratio_{_cid}"] = float(_val)
+                    _fc = _mix.get("fit_conditions") or {}
+                    if _fc.get("refine") is not None:
+                        st.session_state["mix_fit_extra"] = list(_fc["refine"])
+                    if _fc.get("fit_method"):
+                        st.session_state["fit_method"] = _fc["fit_method"]
                 st.session_state["_project_loaded_msg"] = _proj.project_summary(obj)
                 st.rerun()
             except Exception as _pe:  # noqa: BLE001
@@ -1853,11 +1864,19 @@ with TAB["Adduct mixture"]:
         traces.update({_lib[cid].display_name: weighted.get(cid, np.zeros_like(mix_field)) for cid in mix_ids})
         traces.update(overlay_ui(mix_field, "mix_manual"))
         render_figure(spectrum_figure(mix_field, traces, "Manual mixture (composite + stacked)"), width="stretch")
-        st.markdown("**Ratio table**")
-        st.dataframe(pd.DataFrame([
-            {"component": _lib[cid].display_name, "assignment": _lib[cid].radical_assignment,
-             "manual ratio %": round(100.0 * norm[cid], 1)} for cid in mix_ids
-        ]), hide_index=True, width="stretch")
+        st.markdown("**Mixture parameter table** (copy or save)")
+        _param_df = pd.DataFrame([{
+            "component": _lib[cid].display_name,
+            "assignment": _lib[cid].radical_assignment,
+            "g": round(_lib[cid].g, 5),
+            "a-values (G)": "; ".join(f"{n.label}:{round(n.A_mT * 10, 2)}" for n in _lib[cid].nuclei) or "—",
+            "linewidth (mT)": round(_lib[cid].linewidth_mT, 3),
+            "manual ratio %": round(100.0 * norm[cid], 1),
+        } for cid in mix_ids])
+        st.dataframe(_param_df, hide_index=True, width="stretch")
+        st.download_button("⬇ Save mixture parameter table (CSV)",
+                           data=_param_df.to_csv(index=False).encode("utf-8"),
+                           file_name="mixture_parameters.csv", mime="text/csv", key="mix_param_csv")
         st.markdown("**Decomposed data** (composite + each weighted component — copy or save)")
         _man_names = {cid: _lib[cid].display_name for cid in mix_ids}
         decomposition_download(
@@ -1975,6 +1994,18 @@ _proj_fit = st.session_state.get("fit")
 _proj_fit_summary = {}
 if _proj_fit is not None and getattr(_proj_fit, "metrics", None):
     _proj_fit_summary = {k: (float(v) if isinstance(v, (int, float)) else str(v)) for k, v in _proj_fit.metrics.items()}
+# Capture the manual spin-adduct mixture and its fitting conditions for the project.
+_proj_mix_ids = list(st.session_state.get("mix_component_ids", []) or [])
+_proj_mixture = {}
+if _proj_mix_ids:
+    _proj_mixture = {
+        "component_ids": _proj_mix_ids,
+        "ratios": {cid: float(st.session_state.get(f"mix_ratio_{cid}", 0.0)) for cid in _proj_mix_ids},
+        "fit_conditions": {
+            "refine": list(st.session_state.get("mix_fit_extra", []) or []),
+            "fit_method": st.session_state.get("fit_method"),
+        },
+    }
 try:
     _proj_bytes = _projS.save_project(
         microwave_frequency_GHz=float(mw_freq),
@@ -1982,6 +2013,7 @@ try:
         filename=st.session_state.get("_cur_filename"),
         components_json=_c2j(_proj_comps, name="project_models") if _proj_comps else None,
         fit_summary=_proj_fit_summary,
+        mixture=_proj_mixture,
         preprocess={"field_shift_mT": float(st.session_state.get("field_shift_mT", 0.0))},
     )
     st.download_button("⬇ Save project (.simepr.json)", data=_proj_bytes,

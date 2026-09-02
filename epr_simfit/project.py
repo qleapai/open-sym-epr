@@ -20,9 +20,15 @@ def save_project(*, microwave_frequency_GHz: float,
                  preprocess: dict | None = None,
                  components_json: str | None = None,
                  fit_summary: dict | None = None,
+                 mixture: dict | None = None,
                  config: dict | None = None,
                  notes: str = "") -> bytes:
-    """Serialize the working session into a portable project (JSON bytes)."""
+    """Serialize the working session into a portable project (JSON bytes).
+
+    ``mixture`` captures the manual spin-adduct mixture and its fitting conditions:
+    {"component_ids": [...], "ratios": {id: value}, "fit_conditions": {...}} so that
+    reopening the project restores the exact mixture and how it was set up to be fit.
+    """
     payload = {
         "schema": SCHEMA,
         "version": VERSION,
@@ -33,6 +39,7 @@ def save_project(*, microwave_frequency_GHz: float,
         "preprocess": preprocess or {},
         "components_json": components_json,   # epr_simfit.user_models JSON of components
         "fit_summary": fit_summary or {},
+        "mixture": mixture or {},             # manual spin-adduct mixture + fit conditions
         "config": config or {},
         "notes": notes,
     }
@@ -55,5 +62,7 @@ def project_summary(obj: dict) -> str:
     if obj.get("spectrum_text"):
         n = sum(1 for ln in obj["spectrum_text"].splitlines()
                 if ln[:1].isdigit() or ln[:1] in "+-.")
+    _mix = obj.get("mixture") or {}
+    _mix_txt = f" · mixture: {len(_mix.get('component_ids', []))} adduct(s)" if _mix.get("component_ids") else ""
     return (f"saved {obj.get('saved_utc', '?')} · ν = {obj.get('microwave_frequency_GHz', '?')} GHz · "
-            f"{n} data rows · {'fit present' if obj.get('fit_summary') else 'no fit'}")
+            f"{n} data rows · {'fit present' if obj.get('fit_summary') else 'no fit'}{_mix_txt}")
