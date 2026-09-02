@@ -446,6 +446,105 @@ def overlay_ui(target_field, key: str):
     return fit_store.overlay_traces(st.session_state, picks, target_field, include_experimental=inc_exp)
 
 
+def render_fit_analysis(fit, mw, key_prefix: str, fit_mode: str = "weights + linewidths + g + hyperfine",
+                        field_shift: float = 0.0):
+    """Full Fit-tab-style analysis for ANY FitResult: residual + noise floor, goodness
+    of fit, improvement suggestions, component decomposition, detected species,
+    publication parameters, Monte-Carlo uncertainties, and a methods paragraph.
+    Reused by both the Fit tab and the Adduct-mixture tab so they share every feature."""
+    # ── Residual + noise floor ──
+    st.markdown("**Residual  (experimental − fit)**")
+    _rc1, _rc2 = st.columns([4, 1])
+    _rpct = _rc2.slider("Noise floor %", 0, 50, 0, 1, key=f"{key_prefix}_noise",
+                        help="Gray band at ±N% of peak residual; features outside are likely real signal.")
+    _rfig = residual_figure(fit.field_mT, fit.residual)
+    if _rpct > 0 and fit.residual.size:
+        _amax = float(np.nanmax(np.abs(fit.residual)))
+        _t = _amax * _rpct / 100.0
+        _rfig.add_hrect(y0=-_t, y1=_t, fillcolor="gray", opacity=0.15, line_width=0)
+    render_figure(_rfig, key=f"{key_prefix}_resid")
+
+    # ── Goodness of fit ──
+    st.subheader("Goodness of fit")
+    fq = assess_fit_quality(fit.metrics)
+    qc = st.columns(6)
+    qc[0].metric("Status", f"{fq.icon} {fq.label}")
+    qc[1].metric("R²", f"{fit.metrics['R2']:.4f}")
+    qc[2].metric("Norm. RMSE", f"{fit.metrics['normalized RMSE']:.4f}")
+    qc[3].metric("RMSE", f"{fit.metrics['RMSE']:.4g}")
+    qc[4].metric("AIC", f"{fit.metrics['AIC']:.1f}")
+    qc[5].metric("BIC", f"{fit.metrics['BIC']:.1f}")
+    st.markdown(f"**{fq.r2_note}**")
+    st.caption(fq.nrmse_note)
+    st.info(fq.overall)
+
+    _sugg = suggest_fit_improvements(fit, fit_mode=fit_mode)
+    if _sugg:
+        with st.expander(f"💡 Suggestions to improve this fit  ({len(_sugg)} item{'s' if len(_sugg) != 1 else ''})",
+                         expanded=any(s.priority == "High" for s in _sugg)):
+            for _sg in _sugg:
+                _ic = {"High": "🔴", "Medium": "🟡", "Low": "🔵", "Info": "✅"}.get(_sg.priority, "ℹ️")
+                st.markdown(f"**{_ic} [{_sg.priority}] {_sg.title}**")
+                st.caption(f"*Why:* {_sg.reason}")
+                st.caption(f"*What to do:* {_sg.action}")
+                st.divider()
+
+    # ── Component decomposition ──
+    render_figure(component_figure(fit.field_mT, fit.component_curves, fit.weights),
+                  key=f"{key_prefix}_decomp")
+
+    # ── Detected species ──
+    st.subheader("Detected paramagnetic intermediates / species")
+    _i1, _i2 = st.columns([3, 1])
+    _thr = _i2.slider("Min fraction %", 1, 30, 3, 1, key=f"{key_prefix}_minfrac")
+    _i1.caption(f"Components ≥ {_thr}% shown. Assignments are candidate identifications — "
+                "validate with controls and isotope labelling.")
+    _inter = suggest_intermediates(fit, threshold_pct=float(_thr))
+    if _inter:
+        st.dataframe(intermediates_dataframe(_inter), use_container_width=True)
+        for d in _inter:
+            with st.expander(f"{d.rank}. {d.name}  —  {d.fraction_pct:.1f}%  ({d.confidence})", expanded=False):
+                st.markdown(f"**Assignment:** {d.assignment}  |  **Category:** {d.category}")
+                st.markdown(f"**g-value:** `{d.g:.5f}`  |  **ΔBpp:** `{d.linewidth_mT:.4f} mT`  |  **Hyperfine:** {d.nuclei_str}")
+                if d.interpretation:
+                    st.info(d.interpretation)
+                if d.warning:
+                    st.warning(d.warning)
+    else:
+        st.info(f"No components exceed {_thr}%. Lower the slider or add more components.")
+
+    # ── Publication parameters ──
+    st.subheader("Publication-ready parameters")
+    _pub = publication_parameters_table(fit)
+    st.dataframe(_pub, use_container_width=True)
+    with st.expander("Detailed fitted parameter table (raw)", expanded=False):
+        st.dataframe(fit.parameters, use_container_width=True)
+        st.dataframe(fit.component_fractions, use_container_width=True)
+
+    if getattr(fit, "mc_errors", None) is not None:
+        st.subheader("Monte-Carlo uncertainties (bootstrap refits)")
+        _mc = fit.mc_errors.copy()
+        st.dataframe(pd.DataFrame({
+            "component": _mc["component"], "parameter": _mc["parameter"],
+            "value": _mc["value"].map(lambda v: f"{v:.5g}"),
+            "MC σ": _mc["mc_std"].map(lambda v: f"{v:.3g}"),
+            "95% CI": [f"[{lo:.5g}, {hi:.5g}]" for lo, hi in zip(_mc["ci_2.5%"], _mc["ci_97.5%"])],
+        }), use_container_width=True)
+        st.download_button("⬇ Monte-Carlo uncertainties (CSV)", _mc.to_csv(index=False).encode(),
+                           f"{key_prefix}_monte_carlo.csv", "text/csv", key=f"{key_prefix}_mc_csv")
+
+    # ── Methods paragraph ──
+    st.subheader("Publication methods paragraph")
+    st.caption("Copy into your manuscript methods or supplementary information.")
+    _mtxt = publication_methods_paragraph(fit, mw, field_shift)
+    st.text_area("Methods paragraph", _mtxt, height=220, label_visibility="collapsed", key=f"{key_prefix}_methods")
+    st.download_button("⬇ Download publication parameters (CSV)", _pub.to_csv(index=False).encode(),
+                       file_name=f"{key_prefix}_publication_parameters.csv", mime="text/csv",
+                       key=f"{key_prefix}_pub_csv")
+    st.warning("Fit quality is not chemical proof. Validate with standards, controls, "
+               "isotope/substitution tests, and chemistry-specific constraints.")
+
+
 # ── Global fit store manager (sidebar) — load any fit into any plotting tab ──────
 with st.sidebar.expander("🗂 Saved fits (global store)", expanded=False):
     _reg_names = fit_store.names(st.session_state)
@@ -1912,51 +2011,59 @@ with TAB["Adduct mixture"]:
         if parsed is None or prep is None:
             st.info("Import and preprocess a spectrum (Import / Preprocess tabs) to enable automated fitting.")
         else:
+            with st.expander("📖 Scientific background — fitting algorithm, parameters & statistics", expanded=False):
+                st.markdown(SCIENCE_FIT)
             extra = st.multiselect("Also refine (beyond ratios)", ["linewidths", "g", "hyperfine"],
                                    default=["linewidths", "g", "hyperfine"], key="mix_fit_extra",
                                    help="'hyperfine' is esfit-style a-value refinement so a modelled "
                                         "triplet can match a measured splitting (e.g. 17 G).")
             fit_mode = "weights" + ("" if not extra else " + " + " + ".join(extra))
-            if st.button("Fit mixture ratios to spectrum", key="mix_fit_btn"):
+            _mx1, _mx2, _mx3 = st.columns(3)
+            _mix_baseline = _mx1.selectbox("Baseline in fit", [0, 1], index=0, key="mix_baseline")
+            _mix_maxeval = _mx2.number_input("Max evaluations", 100, 5000, 1200, 100, key="mix_maxeval")
+            _mix_mc_on = _mx3.checkbox("Monte-Carlo error bars", value=False, key="mix_mc_on",
+                                       help="Bootstrap uncertainties (publication-grade); slower.")
+            _mc1, _mc2 = st.columns(2)
+            _mix_mc_n = _mc1.number_input("MC realisations", 20, 500, 50, 10, key="mix_mc_n", disabled=not _mix_mc_on)
+            _mix_mc_noise = _mc2.selectbox("MC noise model", ["gaussian", "residual"], key="mix_mc_noise", disabled=not _mix_mc_on)
+            if st.button("Fit mixture ratios to spectrum", type="primary", key="mix_fit_btn"):
                 with st.spinner("Fitting mixture ..."):
                     st.session_state["mixture_fit"] = mixtures_mod.fit_mixture_ratios(
                         prep.field_mT, prep.processed, [c.clone() for c in mix_components],
-                        mw_frequency_GHz=_mix_mw, mode=fit_mode, max_nfev=1200, n_orientations=n_orient)
+                        mw_frequency_GHz=_mix_mw, mode=fit_mode, baseline_order=int(_mix_baseline),
+                        max_nfev=int(_mix_maxeval), n_orientations=n_orient,
+                        n_monte_carlo=int(_mix_mc_n) if _mix_mc_on else 0,
+                        mc_method=_mix_mc_noise if _mix_mc_on else "gaussian")
             res = st.session_state.get("mixture_fit")
             if res:
-                st.metric("Fit R²", f"{res['R2']:.3f}")
+                _mix_traces = {"experimental": res["fit"].experimental, "mixture fit": res["fit"].fit_total}
+                _mix_traces.update(overlay_ui(res["fit"].field_mT, "mix_tab"))
+                render_figure(spectrum_figure(res["fit"].field_mT, _mix_traces,
+                                                f"Automated mixture fit (R²={res['R2']:.3f})"), width="stretch")
+                save_fit_ui("Mixture", "mix_tab", field_mT=res["fit"].field_mT,
+                            experimental=res["fit"].experimental, fit_total=res["fit"].fit_total,
+                            components=res["fit"].components, weights=res["fit"].weights,
+                            R2=res["R2"], n_parameters=res["fit"].n_parameters,
+                            extra={"percent": res["percent"]})
+                # Recovered ratios (+ refined a-values)
+                st.markdown("**Recovered ratios**")
                 rows = mixtures_mod.mixture_table(res["fit"].components, res["fractions"])
                 for r in rows:
                     r["recovered a-values (G)"] = ", ".join(
                         str(v) for v in res["hyperfine_G"].get(
                             next((c.component_id for c in res["fit"].components if c.display_name == r["component"]), ""), []))
                 st.dataframe(pd.DataFrame(rows), hide_index=True, width="stretch")
-                _mix_traces = {"experimental": res["fit"].experimental, "mixture fit": res["fit"].fit_total}
-                _mix_traces.update(overlay_ui(res["fit"].field_mT, "mix_tab"))
-                render_figure(spectrum_figure(res["fit"].field_mT, _mix_traces,
-                                                f"Automated mixture fit (R²={res['R2']:.3f})"), width="stretch")
-                # Decomposed contributions (plot + copyable/saveable table)
+                # Decomposed data table (copy / save)
                 _fit_names = {c.component_id: c.display_name for c in res["fit"].components}
-                st.markdown("**Decomposed fit** (each weighted component)")
-                render_figure(component_figure(res["fit"].field_mT, res["fit"].component_curves,
-                                                 res["fit"].weights), width="stretch")
                 st.markdown("**Decomposed data** (experimental, fit, residual + each component — copy or save)")
                 decomposition_download(
                     decomposition_dataframe(res["fit"].field_mT, res["fit"].component_curves,
                                             res["fit"].weights, _fit_names,
                                             experimental=res["fit"].experimental, total=res["fit"].fit_total),
                     key="mixture_fit_decomposition", label="⬇ Save fit decomposition CSV")
-                save_fit_ui("Mixture", "mix_tab", field_mT=res["fit"].field_mT,
-                            experimental=res["fit"].experimental, fit_total=res["fit"].fit_total,
-                            components=res["fit"].components, weights=res["fit"].weights,
-                            R2=res["R2"], n_parameters=res["fit"].n_parameters,
-                            extra={"percent": res["percent"]})
-                if res["R2"] < 0.6:
-                    st.warning(
-                        "Low R²: this component set does not adequately reproduce the spectrum. "
-                        "A poor mixture fit is **not** evidence for the chosen adducts — try a different "
-                        "model (e.g. a bare nitroxide triplet) and confirm any N-centred adduct with ¹⁵N labelling."
-                    )
+                # Full Fit-tab-style analysis (goodness of fit, residual, species, publication params, methods)
+                render_fit_analysis(res["fit"], _mix_mw, "mix", fit_mode=fit_mode,
+                                    field_shift=float(st.session_state.get("field_shift_mT", 0.0)))
 
 with TAB["White paper / citation"]:
     st.subheader("White paper / citation")

@@ -66,7 +66,8 @@ def _seed_grid(components, field_mT, intensity, mw_frequency_GHz, n_orientations
 
 def fit_mixture_ratios(field_mT, intensity, components, mw_frequency_GHz: float = 9.85,
                        baseline_order: int = 0, max_nfev: int = 400, n_orientations: int = 600,
-                       mode: str = "weights only", seeded: bool = True):
+                       mode: str = "weights only", seeded: bool = True,
+                       n_monte_carlo: int = 0, mc_method: str = "gaussian"):
     """Fit a mixture of the given components to a spectrum and recover the ratios.
 
     ``mode`` selects what is refined alongside the component weights (ratios):
@@ -78,20 +79,24 @@ def fit_mixture_ratios(field_mT, intensity, components, mw_frequency_GHz: float 
     fractions (summing to 1), percentages, the fit R^2, and the refined per-component
     hyperfine (a-values, in Gauss).
     """
-    def _run(comps):
+    def _run(comps, mc=0):
         return fit_spectrum(field_mT, intensity, components=comps,
                             mw_frequency_GHz=mw_frequency_GHz, mode=mode,
                             baseline_order=baseline_order, max_nfev=max_nfev,
-                            n_orientations=n_orientations)
+                            n_orientations=n_orientations,
+                            n_monte_carlo=int(mc), mc_method=mc_method)
 
     if seeded and "g" in mode.lower():
         fit = None
+        best_variant = None
         for variant in _seed_grid(components, field_mT, intensity, mw_frequency_GHz, n_orientations):
-            cand = _run(variant)
+            cand = _run(variant)          # cheap pass (no MC) to pick the best seed
             if fit is None or cand.metrics.get("R2", -np.inf) > fit.metrics.get("R2", -np.inf):
-                fit = cand
+                fit, best_variant = cand, variant
+        if n_monte_carlo:                 # refit the winning seed once with Monte-Carlo
+            fit = _run(best_variant, mc=n_monte_carlo)
     else:
-        fit = _run([c.clone() for c in components])
+        fit = _run([c.clone() for c in components], mc=n_monte_carlo)
     weights = {cid: float(max(0.0, w)) for cid, w in fit.weights.items()}
     fractions = normalise_ratios(weights)
     hyperfine_G = {}
