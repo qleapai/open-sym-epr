@@ -363,6 +363,30 @@ def source_seq(source: str) -> int:
     return n
 
 
+def decomposition_dataframe(field, component_curves: dict, weights: dict, names: dict,
+                            experimental=None, total=None) -> pd.DataFrame:
+    """Build a wide table: Field_mT, (experimental), (total/composite), then one column
+    per component with its WEIGHTED contribution — ready to copy-paste or save as CSV."""
+    data = {"Field_mT": np.asarray(field, dtype=float)}
+    if experimental is not None:
+        data["experimental"] = np.asarray(experimental, dtype=float)
+    if total is not None:
+        data["total"] = np.asarray(total, dtype=float)
+    if experimental is not None and total is not None:
+        data["residual"] = np.asarray(experimental, dtype=float) - np.asarray(total, dtype=float)
+    for cid, curve in component_curves.items():
+        w = float(weights.get(cid, 1.0)) if weights else 1.0
+        data[names.get(cid, cid)] = w * np.asarray(curve, dtype=float)
+    return pd.DataFrame(data)
+
+
+def decomposition_download(df: pd.DataFrame, key: str, label: str = "⬇ Save decomposition CSV"):
+    """Show a copyable table + an Origin-ready CSV download for a decomposition frame."""
+    st.dataframe(df, hide_index=True, width="stretch")
+    st.download_button(label, data=df.to_csv(index=False).encode("utf-8"),
+                       file_name=f"{key}.csv", mime="text/csv", key=f"decomp_csv_{key}")
+
+
 def overlay_ui(target_field, key: str):
     """Multiselect of saved fits; returns overlay traces to merge into a plot dict."""
     saved = fit_store.names(st.session_state)
@@ -405,8 +429,9 @@ with st.sidebar.expander("🗂 Saved fits (global store)", expanded=False):
         if _csv:
             st.download_button("⬇ CSV (Origin-ready)", data=_csv,
                                file_name=f"{_sel}.csv", mime="text/csv", key="store_csv")
-if st.session_state.pop("_start_model_msg", None):
-    st.sidebar.success("Loaded saved fit into Model builder as the starting model. "
+_start_msg = st.session_state.pop("_start_model_msg", None)
+if _start_msg:
+    st.sidebar.success(f"Loaded {_start_msg} into Model builder as the starting model. "
                        "Open **Model builder** → adjust if needed → **Fit** to optimise further.")
 
 tabs = st.tabs(["Import", "Metadata", "Preprocess", "Model builder", "Fit", "Compare", "Export", "Batch / kinetics", "References", "Solvers", "ML-assisted fit", "Adduct mixture", "White paper / citation"])
@@ -1668,11 +1693,31 @@ with tabs[11]:
                                                         mw_frequency_GHz=_mix_mw, n_orientations=n_orient)
         traces = {"composite": total}
         traces.update({_lib[cid].display_name: weighted.get(cid, np.zeros_like(mix_field)) for cid in mix_ids})
+        traces.update(overlay_ui(mix_field, "mix_manual"))
         st.plotly_chart(spectrum_figure(mix_field, traces, "Manual mixture (composite + stacked)"), width="stretch")
+        st.markdown("**Ratio table**")
         st.dataframe(pd.DataFrame([
             {"component": _lib[cid].display_name, "assignment": _lib[cid].radical_assignment,
              "manual ratio %": round(100.0 * norm[cid], 1)} for cid in mix_ids
         ]), hide_index=True, width="stretch")
+        st.markdown("**Decomposed data** (composite + each weighted component — copy or save)")
+        _man_names = {cid: _lib[cid].display_name for cid in mix_ids}
+        decomposition_download(
+            decomposition_dataframe(mix_field, weighted, None, _man_names, total=total),
+            key="manual_mixture", label="⬇ Save manual-mixture decomposition CSV")
+        if st.button("↪ Load this manual mixture into Fit tab", key="mix_to_fit",
+                     help="Send these components with their manual ratios as the starting model "
+                          "in Model builder, then run a full fit in the Fit tab."):
+            _start = []
+            for cid in mix_ids:
+                c = _lib[cid].clone()
+                c.weight = float(norm[cid])          # seed fit weights from the manual ratios
+                _start.append(c)
+            st.session_state["uploaded_model_components"] = _start
+            st.session_state["uploaded_model_meta"] = {"from_manual_mixture": mix_ids}
+            st.session_state["_pending_preselect"] = list(mix_ids)
+            st.session_state["_start_model_msg"] = "manual mixture"
+            st.rerun()
 
         st.markdown("---")
         st.markdown("**Automated ratio recovery** (fit the mixture to the loaded spectrum)")
@@ -1702,6 +1747,17 @@ with tabs[11]:
                 _mix_traces.update(overlay_ui(res["fit"].field_mT, "mix_tab"))
                 st.plotly_chart(spectrum_figure(res["fit"].field_mT, _mix_traces,
                                                 f"Automated mixture fit (R²={res['R2']:.3f})"), width="stretch")
+                # Decomposed contributions (plot + copyable/saveable table)
+                _fit_names = {c.component_id: c.display_name for c in res["fit"].components}
+                st.markdown("**Decomposed fit** (each weighted component)")
+                st.plotly_chart(component_figure(res["fit"].field_mT, res["fit"].component_curves,
+                                                 res["fit"].weights), width="stretch")
+                st.markdown("**Decomposed data** (experimental, fit, residual + each component — copy or save)")
+                decomposition_download(
+                    decomposition_dataframe(res["fit"].field_mT, res["fit"].component_curves,
+                                            res["fit"].weights, _fit_names,
+                                            experimental=res["fit"].experimental, total=res["fit"].fit_total),
+                    key="mixture_fit_decomposition", label="⬇ Save fit decomposition CSV")
                 save_fit_ui("Mixture", "mix_tab", field_mT=res["fit"].field_mT,
                             experimental=res["fit"].experimental, fit_total=res["fit"].fit_total,
                             components=res["fit"].components, weights=res["fit"].weights,
