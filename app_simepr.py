@@ -545,6 +545,49 @@ def render_fit_analysis(fit, mw, key_prefix: str, fit_mode: str = "weights + lin
                "isotope/substitution tests, and chemistry-specific constraints.")
 
 
+def fit_to_report_entry(name, fit, mw, kind="fit", field_shift=0.0):
+    """Normalise a FitResult into a docx_report entry (rows, curves, stats, methods)."""
+    weights = {c.component_id: max(0.0, float(fit.weights.get(c.component_id, 0.0))) for c in fit.components}
+    tot = sum(weights.values()) or 1.0
+    names = {c.component_id: c.display_name for c in fit.components}
+    rows = [{
+        "component": c.display_name, "assignment": c.radical_assignment, "g": c.g,
+        "avals": [(n.isotope, n.label, n.A_mT) for n in c.nuclei],
+        "linewidth_mT": c.linewidth_mT, "eta": c.eta,
+        "fraction_pct": 100.0 * weights[c.component_id] / tot,
+    } for c in fit.components]
+    rows.sort(key=lambda r: -r["fraction_pct"])
+    curves = {names.get(cid, cid): float(fit.weights.get(cid, 1.0)) * np.asarray(cv, float)
+              for cid, cv in fit.component_curves.items()}
+    m = fit.metrics
+    return {"name": name, "kind": kind, "field_mT": fit.field_mT, "experimental": fit.experimental,
+            "total": fit.fit_total, "curves": curves, "rows": rows,
+            "R2": m.get("R2"), "nrmse": m.get("normalized RMSE"), "aic": m.get("AIC"), "bic": m.get("BIC"),
+            "n_params": fit.n_parameters,
+            "methods_text": publication_methods_paragraph(fit, mw, field_shift)}
+
+
+def docx_report_button(entries, key, meta=None, label="📄 Prepare publication DOCX report"):
+    """Build + offer a publication-ready .docx report for the given normalised entries."""
+    entries = [e for e in entries if e]
+    if not entries:
+        return
+    if st.button(label, key=f"{key}_docx_btn"):
+        try:
+            from epr_simfit import docx_report as _dr
+            st.session_state[f"{key}_docx"] = _dr.build_report_docx(entries, meta=meta)
+            st.session_state.pop(f"{key}_docx_err", None)
+        except Exception as exc:  # noqa: BLE001
+            st.session_state[f"{key}_docx_err"] = str(exc)
+    if f"{key}_docx" in st.session_state:
+        st.download_button("⬇ Download DOCX report", st.session_state[f"{key}_docx"],
+                           file_name=f"OpenSymEPR_{key}_report.docx",
+                           mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+                           key=f"{key}_docx_dl")
+    if st.session_state.get(f"{key}_docx_err"):
+        st.caption("DOCX report error: " + st.session_state[f"{key}_docx_err"])
+
+
 # ── Global fit store manager (sidebar) — load any fit into any plotting tab ──────
 with st.sidebar.expander("🗂 Saved fits (global store)", expanded=False):
     _reg_names = fit_store.names(st.session_state)
@@ -1423,6 +1466,26 @@ with TAB["Export"]:
                            data=st.session_state.get("pub_export_zip", b""),
                            file_name="Open-Sym-EPR_publication_export.zip", mime="application/zip",
                            disabled="pub_export_zip" not in st.session_state, key="pub_export_dl")
+
+        # ── Publication-ready DOCX report (figures + captions, decomposed-parameter
+        #    tables, methods text) for the same selection ──
+        st.markdown("**Publication DOCX report** — figures with captions, decomposed-parameter "
+                    "tables (proper g / a / ΔBpp / R² formatting), and methods text.")
+        _doc_entries = []
+        for _label in _pick:
+            _kind, _obj = _avail[_label]
+            if _kind == "fit":
+                _doc_entries.append(fit_to_report_entry(_label, _obj, mw_freq, kind="fit",
+                                    field_shift=float(st.session_state.get("field_shift_mT", 0.0))))
+            elif _kind == "mixture":
+                _doc_entries.append(fit_to_report_entry(_label, _obj["fit"], mw_freq, kind="mixture",
+                                    field_shift=float(st.session_state.get("field_shift_mT", 0.0))))
+            elif _kind == "manual" and st.session_state.get("manual_mixture_entry"):
+                _me = dict(st.session_state["manual_mixture_entry"]); _me["name"] = _label
+                _doc_entries.append(_me)
+        docx_report_button(_doc_entries, key="pub_export",
+                           meta={"software": "Open-Sym-EPR", "project": project_title, "sample": sample_name,
+                                 "microwave_frequency_GHz": mw_freq})
     st.divider()
     st.markdown("### Full report package (metadata, report, citation, templates)")
 
@@ -1981,6 +2044,27 @@ with TAB["Adduct mixture"]:
         decomposition_download(
             decomposition_dataframe(mix_field, weighted, None, _man_names, total=total),
             key="manual_mixture", label="⬇ Save manual-mixture decomposition CSV")
+        # Publication-ready DOCX report of the manual mixture (figure + parameter table + text)
+        st.markdown("**Publication DOCX report** — figure, decomposed-parameter table, description")
+        _manual_entry = {
+            "name": "Manual spin-adduct mixture", "kind": "manual",
+            "field_mT": mix_field, "total": total,
+            "experimental": (prep.processed if (parsed is not None and prep is not None) else None),
+            "curves": {_lib[cid].display_name: weighted.get(cid, np.zeros_like(mix_field)) for cid in mix_ids},
+            "rows": [{"component": _lib[cid].display_name, "assignment": _lib[cid].radical_assignment,
+                      "g": _lib[cid].g, "avals": [(n.isotope, n.label, n.A_mT) for n in _lib[cid].nuclei],
+                      "linewidth_mT": _lib[cid].linewidth_mT, "eta": _lib[cid].eta,
+                      "fraction_pct": round(100.0 * norm[cid], 1)} for cid in mix_ids],
+            "methods_text": (f"The X-band (ν = {_mix_mw:.4f} GHz) cw-EPR spectrum was modelled as a linear "
+                             f"combination of {len(mix_ids)} spin-adduct components at user-defined ratios, "
+                             "each simulated with isotropic g, hyperfine, and pseudo-Voigt linewidth from the "
+                             "Open-Sym-EPR library. Component fractions are the user-set mixing ratios "
+                             "(normalised to 100%)."),
+        }
+        st.session_state["manual_mixture_entry"] = _manual_entry   # reused by the Export tab
+        docx_report_button([_manual_entry], key="mix_manual",
+                           meta={"software": "Open-Sym-EPR", "project": project_title, "sample": sample_name,
+                                 "microwave_frequency_GHz": mw_freq})
         # Persist for the Export tab (publication export of the manual mixture)
         st.session_state["manual_mixture"] = {
             "field_mT": np.asarray(mix_field, dtype=float),
@@ -2064,6 +2148,14 @@ with TAB["Adduct mixture"]:
                 # Full Fit-tab-style analysis (goodness of fit, residual, species, publication params, methods)
                 render_fit_analysis(res["fit"], _mix_mw, "mix", fit_mode=fit_mode,
                                     field_shift=float(st.session_state.get("field_shift_mT", 0.0)))
+                # Publication-ready DOCX report (figure + caption, parameter table, methods)
+                st.markdown("**Publication DOCX report** — figure, decomposed-parameter table, methods")
+                docx_report_button(
+                    [fit_to_report_entry("Automated spin-adduct mixture fit", res["fit"], _mix_mw,
+                                         kind="mixture", field_shift=float(st.session_state.get("field_shift_mT", 0.0)))],
+                    key="mix_fit",
+                    meta={"software": "Open-Sym-EPR", "project": project_title, "sample": sample_name,
+                          "microwave_frequency_GHz": mw_freq})
 
 with TAB["White paper / citation"]:
     st.subheader("White paper / citation")
