@@ -112,6 +112,48 @@ def overlay_traces(state, selected: list[str], target_field, *, include_experime
     return out
 
 
+def serialize(state) -> list[dict]:
+    """Serialize the whole registry to JSON-safe dicts (for project checkpoints)."""
+    from .user_models import components_to_json
+    out = []
+    for e in registry(state).values():
+        out.append({
+            "name": e["name"], "source": e["source"], "timestamp": e["timestamp"],
+            "field_mT": np.asarray(e["field_mT"], float).tolist(),
+            "experimental": np.asarray(e["experimental"], float).tolist(),
+            "fit_total": np.asarray(e["fit_total"], float).tolist(),
+            "components_json": components_to_json(e["components"], name=e["name"]),
+            "weights": {k: float(v) for k, v in e["weights"].items()},
+            "mw_frequency_GHz": float(e["mw_frequency_GHz"]),
+            "R2": float(e["R2"]) if e["R2"] == e["R2"] else None,  # NaN -> None
+            "n_parameters": int(e["n_parameters"]), "extra": e.get("extra", {}),
+        })
+    return out
+
+
+def restore(state, data: list[dict] | None) -> int:
+    """Rebuild the registry from serialize() output; returns how many were restored."""
+    from .user_models import components_from_json
+    reg = registry(state)
+    reg.clear()
+    for d in data or []:
+        try:
+            comps, _ = components_from_json(d["components_json"])
+        except Exception:  # noqa: BLE001
+            comps = []
+        reg[d["name"]] = {
+            "name": d["name"], "source": d.get("source", ""), "timestamp": d.get("timestamp", ""),
+            "field_mT": np.asarray(d["field_mT"], float),
+            "experimental": np.asarray(d["experimental"], float),
+            "fit_total": np.asarray(d["fit_total"], float),
+            "components": comps, "weights": d.get("weights", {}),
+            "mw_frequency_GHz": float(d.get("mw_frequency_GHz", 9.85)),
+            "R2": float(d["R2"]) if d.get("R2") is not None else float("nan"),
+            "n_parameters": int(d.get("n_parameters", 0)), "extra": d.get("extra", {}),
+        }
+    return len(reg)
+
+
 def export_csv(state, name: str) -> str | None:
     """Origin-ready CSV (Field_mT, experimental, fit, residual) for one saved fit."""
     e = registry(state).get(name)

@@ -258,13 +258,31 @@ with st.sidebar:
                         st.session_state["mix_fit_extra"] = list(_fc["refine"])
                     if _fc.get("fit_method"):
                         st.session_state["fit_method"] = _fc["fit_method"]
+                # Restore the global fit store (saved fits) so overlays/use-as-start return
+                if obj.get("fit_store"):
+                    from epr_simfit import fit_store as _fsmod
+                    _fsmod.restore(st.session_state, obj["fit_store"])
+                # Restore UI settings
+                _ui = obj.get("ui_state") or {}
+                if _ui.get("model_component_ids"):
+                    st.session_state["_pending_preselect"] = list(_ui["model_component_ids"])
+                if _ui.get("fit_method"):
+                    st.session_state["fit_method"] = _ui["fit_method"]
                 st.session_state["_project_loaded_msg"] = _proj.project_summary(obj)
                 st.rerun()
             except Exception as _pe:  # noqa: BLE001
                 st.error(f"Could not load project: {_pe}")
         if st.session_state.get("_project_loaded_msg"):
             st.success("Loaded — " + st.session_state["_project_loaded_msg"])
-        st.caption("The **Save project** button is at the bottom of the page (captures your current work).")
+        st.caption("The **Save checkpoint** button is at the bottom of the page (captures your current work).")
+        _warn_close = st.checkbox("⚠ Warn me before closing (unsaved work)", value=False, key="warn_before_close",
+                                  help="Shows the browser's 'Leave site?' prompt so you can save a checkpoint first.")
+        import streamlit.components.v1 as _stc
+        if _warn_close:
+            _stc.html("<script>try{window.parent.onbeforeunload=function(e){e.preventDefault();"
+                      "e.returnValue='';return '';};}catch(err){}</script>", height=0)
+        else:
+            _stc.html("<script>try{window.parent.onbeforeunload=null;}catch(err){}</script>", height=0)
     st.header("Data")
     uploaded = st.file_uploader("Upload EPR file (ASC/TXT/CSV)", type=["asc", "txt", "dat", "csv"])
     bruker_files = st.file_uploader(
@@ -2177,26 +2195,32 @@ with TAB["White paper / citation"]:
         reference_doc = REFERENCE_SPECTRA_DOC.read_text(encoding="utf-8")
         st.download_button("Download reference spectra plan", data=reference_doc, file_name="REFERENCE_SPECTRA.md", mime="text/markdown")
 
-# ── Save project (captures the current working session; restore via sidebar → Project) ──
+# ── Save project / checkpoint (captures the current session; restore via sidebar) ──
 st.divider()
-st.subheader("💾 Save project")
-st.caption("Download your current session — spectrum, microwave frequency, selected/custom models, and the "
-           "latest fit summary — as a single file. Reopen it later from the sidebar **Project — save / resume** "
-           "panel to continue exactly where you left off.")
+st.subheader("💾 Save project / checkpoint")
+st.caption("Save a **checkpoint** of your session so you can reopen it later and resume exactly where you "
+           "left off (restore from the sidebar **Project — save / resume** panel). Choose what to include.")
 from epr_simfit import project as _projS
+from epr_simfit import fit_store as _fsmod
 from epr_simfit.user_models import components_to_json as _c2j
 try:
     _proj_comps = selected_components
 except NameError:
     _proj_comps = []
+
+_pcol = st.columns(4)
+_inc_spectrum = _pcol[0].checkbox("Spectrum data", value=True, key="save_inc_spectrum")
+_inc_models = _pcol[1].checkbox("Models & mixture", value=True, key="save_inc_models")
+_inc_store = _pcol[2].checkbox("Saved fits (store)", value=True, key="save_inc_store")
+_inc_ui = _pcol[3].checkbox("UI settings", value=True, key="save_inc_ui")
+
 _proj_fit = st.session_state.get("fit")
 _proj_fit_summary = {}
 if _proj_fit is not None and getattr(_proj_fit, "metrics", None):
     _proj_fit_summary = {k: (float(v) if isinstance(v, (int, float)) else str(v)) for k, v in _proj_fit.metrics.items()}
-# Capture the manual spin-adduct mixture and its fitting conditions for the project.
 _proj_mix_ids = list(st.session_state.get("mix_component_ids", []) or [])
 _proj_mixture = {}
-if _proj_mix_ids:
+if _inc_models and _proj_mix_ids:
     _proj_mixture = {
         "component_ids": _proj_mix_ids,
         "ratios": {cid: float(st.session_state.get(f"mix_ratio_{cid}", 0.0)) for cid in _proj_mix_ids},
@@ -2205,19 +2229,31 @@ if _proj_mix_ids:
             "fit_method": st.session_state.get("fit_method"),
         },
     }
+_proj_store = _fsmod.serialize(st.session_state) if _inc_store else []
+_proj_ui = {}
+if _inc_ui:
+    _proj_ui = {
+        "model_component_ids": list(st.session_state.get("model_component_ids", []) or []),
+        "hover_readout": plotting_mod.HOVER_READOUT,
+        "fit_method": st.session_state.get("fit_method"),
+    }
 try:
     _proj_bytes = _projS.save_project(
         microwave_frequency_GHz=float(mw_freq),
-        spectrum_text=st.session_state.get("_cur_file_text"),
-        filename=st.session_state.get("_cur_filename"),
-        components_json=_c2j(_proj_comps, name="project_models") if _proj_comps else None,
+        spectrum_text=st.session_state.get("_cur_file_text") if _inc_spectrum else None,
+        filename=st.session_state.get("_cur_filename") if _inc_spectrum else None,
+        components_json=_c2j(_proj_comps, name="project_models") if (_inc_models and _proj_comps) else None,
         fit_summary=_proj_fit_summary,
         mixture=_proj_mixture,
+        fit_store=_proj_store,
+        ui_state=_proj_ui,
         preprocess={"field_shift_mT": float(st.session_state.get("field_shift_mT", 0.0))},
     )
-    st.download_button("⬇ Save project (.simepr.json)", data=_proj_bytes,
-                       file_name="simepr_project.simepr.json", mime="application/json",
-                       disabled=st.session_state.get("_cur_file_text") is None,
-                       help="Loads a spectrum first (Data panel) to enable saving.")
+    _n_store = len(_proj_store)
+    st.download_button(
+        f"⬇ Save checkpoint (.simepr.json){f' — {_n_store} saved fit(s)' if _n_store else ''}",
+        data=_proj_bytes, file_name="OpenSymEPR_checkpoint.simepr.json", mime="application/json",
+        help="Reopen from the sidebar Project panel to resume where you left off.")
+    st.caption("💡 Tip: save a checkpoint before closing the app so no work is lost.")
 except Exception as _pse:  # noqa: BLE001
     st.caption(f"(Project save unavailable: {_pse})")

@@ -21,6 +21,8 @@ def save_project(*, microwave_frequency_GHz: float,
                  components_json: str | None = None,
                  fit_summary: dict | None = None,
                  mixture: dict | None = None,
+                 fit_store: list | None = None,
+                 ui_state: dict | None = None,
                  config: dict | None = None,
                  notes: str = "") -> bytes:
     """Serialize the working session into a portable project (JSON bytes).
@@ -40,6 +42,8 @@ def save_project(*, microwave_frequency_GHz: float,
         "components_json": components_json,   # epr_simfit.user_models JSON of components
         "fit_summary": fit_summary or {},
         "mixture": mixture or {},             # manual spin-adduct mixture + fit conditions
+        "fit_store": fit_store or [],         # serialized global fit store (saved fits)
+        "ui_state": ui_state or {},           # selected components, readout mode, fit settings
         "config": config or {},
         "notes": notes,
     }
@@ -64,5 +68,7 @@ def project_summary(obj: dict) -> str:
                 if ln[:1].isdigit() or ln[:1] in "+-.")
     _mix = obj.get("mixture") or {}
     _mix_txt = f" · mixture: {len(_mix.get('component_ids', []))} adduct(s)" if _mix.get("component_ids") else ""
+    _fs = obj.get("fit_store") or []
+    _fs_txt = f" · {len(_fs)} saved fit(s)" if _fs else ""
     return (f"saved {obj.get('saved_utc', '?')} · ν = {obj.get('microwave_frequency_GHz', '?')} GHz · "
-            f"{n} data rows · {'fit present' if obj.get('fit_summary') else 'no fit'}{_mix_txt}")
+            f"{n} data rows · {'fit present' if obj.get('fit_summary') else 'no fit'}{_mix_txt}{_fs_txt}")

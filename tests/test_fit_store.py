@@ -47,6 +47,23 @@ def test_overlay_traces_interpolate_and_mask_out_of_range():
     assert np.isfinite(y[len(y) // 2])                    # inside range -> value
 
 
+def test_serialize_restore_roundtrip():
+    state = {}
+    fit_store.add(state, "run A", **_entry_args())
+    fit_store.add(state, "run B", **_entry_args())
+    blob = fit_store.serialize(state)
+    assert isinstance(blob, list) and len(blob) == 2
+    # restore into a fresh state
+    state2 = {}
+    n = fit_store.restore(state2, blob)
+    assert n == 2
+    assert fit_store.names(state2) == ["run A", "run B"]
+    e = fit_store.get(state2, "run A")
+    assert abs(e["R2"] - 0.97) < 1e-9
+    assert e["components"] and e["components"][0].component_id == "pbn_oh"
+    assert len(e["field_mT"]) == 200
+
+
 def test_export_csv_has_header_and_rows():
     state = {}
     fit_store.add(state, "run", **_entry_args())
