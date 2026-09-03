@@ -64,6 +64,39 @@ def _avals_text(avals) -> str:
     return "; ".join(f"{_iso_label(iso)} {round(A * 10, 2)}" for iso, _lab, A in avals) or "—"
 
 
+def _num(v, fmt=".5g"):
+    try:
+        f = float(v)
+        return format(f, fmt)
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _val_err(v, e, fmt=".5g"):
+    """'value ± error' (Unicode ±); error omitted when missing/non-finite."""
+    import math
+    s = _num(v, fmt)
+    try:
+        ef = float(e)
+        if math.isfinite(ef) and ef > 0:
+            return f"{s} ± {format(ef, '.2g')}"
+    except (TypeError, ValueError):
+        pass
+    return s
+
+
+def _avals_text_err(avals) -> str:
+    """Hyperfine list in Gauss with per-nucleus error: '¹⁴N 15.2 ± 0.2; ¹H 2.8'."""
+    parts = []
+    for item in avals:
+        iso, _lab, A = item[0], item[1], item[2]
+        err = item[3] if len(item) > 3 else None
+        g = A * 10.0
+        ge = (err * 10.0) if (err is not None) else None
+        parts.append(f"{_iso_label(iso)} {_val_err(g, ge, '.4g')}")
+    return "; ".join(parts) or "—"
+
+
 def _report_figure(entry) -> bytes:
     import matplotlib
     matplotlib.use("Agg")
@@ -168,33 +201,36 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
         tab_no += 1
         tcap = doc.add_paragraph()
         _run(tcap, f"Table {tab_no}. ", bold=True)
-        _run(tcap, "Isotropic spin-Hamiltonian parameters — ")
+        _run(tcap, "Combined isotropic spin-Hamiltonian parameters of the decomposed components — ")
         _sym(tcap, "g"); _run(tcap, " factor, hyperfine coupling constants ")
-        _run(tcap, "a", italic=True); _run(tcap, ", peak-to-peak linewidth ")
+        _run(tcap, "a", italic=True); _run(tcap, " (G), peak-to-peak linewidth ")
         _run(tcap, "ΔB"); _run(tcap, "pp", sub=True)
-        _run(tcap, " — and relative spectral fractions of the decomposed components. "
-                   "Assignments are candidate identifications requiring independent validation "
-                   "(isotope labelling, concentration series, and chemical controls).")
+        _run(tcap, " (mT), pseudo-Voigt mixing η, and relative spectral fraction — with standard "
+                   "errors (± 1σ) where a parameter was optimised. Assignments are candidate "
+                   "identifications requiring independent validation (isotope labelling, concentration "
+                   "series, and chemical controls).")
 
         rows = e.get("rows", [])
-        table = doc.add_table(rows=1, cols=6)
+        table = doc.add_table(rows=1, cols=7)
         table.style = "Table Grid"
         table.alignment = WD_ALIGN_PARAGRAPH.CENTER
         hdr = table.rows[0].cells
         _run(hdr[0].paragraphs[0], "Component", bold=True)
         _run(hdr[1].paragraphs[0], "Assignment", bold=True)
-        p = hdr[2].paragraphs[0]; _run(p, "", bold=True); _sym(p, "g")
+        p = hdr[2].paragraphs[0]; _sym(p, "g")
         p = hdr[3].paragraphs[0]; _sym(p, "aiso")
         p = hdr[4].paragraphs[0]; _sym(p, "dBpp")
-        p = hdr[5].paragraphs[0]; _run(p, "Fraction (%)", bold=True)
+        p = hdr[5].paragraphs[0]; _run(p, "η (L/G)")
+        p = hdr[6].paragraphs[0]; _run(p, "Fraction (%)", bold=True)
         for r in rows:
             cells = table.add_row().cells
             cells[0].text = str(r.get("component", ""))
             cells[1].text = str(r.get("assignment", ""))
-            cells[2].text = f"{r.get('g', float('nan')):.5f}"
-            cells[3].text = _avals_text(r.get("avals", []))
-            cells[4].text = f"{r.get('linewidth_mT', float('nan')):.3f}"
-            cells[5].text = f"{r.get('fraction_pct', 0.0):.1f}"
+            cells[2].text = _val_err(r.get("g"), r.get("g_err"), ".5f")
+            cells[3].text = _avals_text_err(r.get("avals", []))
+            cells[4].text = _val_err(r.get("linewidth_mT"), r.get("lw_err"), ".3f")
+            cells[5].text = _num(r.get("eta", 0.5), ".2f")
+            cells[6].text = _val_err(r.get("fraction_pct", 0.0), r.get("fraction_err"), ".1f")
 
         # ── Detailed fitted-parameter table (every parameter, value, error, bounds) ──
         if e.get("param_df") is not None and len(e["param_df"]):

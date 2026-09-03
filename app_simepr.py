@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import re
+from datetime import datetime as _now
 from pathlib import Path
 
 import numpy as np
@@ -568,12 +569,31 @@ def fit_to_report_entry(name, fit, mw, kind="fit", field_shift=0.0):
     weights = {c.component_id: max(0.0, float(fit.weights.get(c.component_id, 0.0))) for c in fit.components}
     tot = sum(weights.values()) or 1.0
     names = {c.component_id: c.display_name for c in fit.components}
-    rows = [{
-        "component": c.display_name, "assignment": c.radical_assignment, "g": c.g,
-        "avals": [(n.isotope, n.label, n.A_mT) for n in c.nuclei],
-        "linewidth_mT": c.linewidth_mT, "eta": c.eta,
-        "fraction_pct": 100.0 * weights[c.component_id] / tot,
-    } for c in fit.components]
+    # Per-component standard errors from the fit's parameter table (for the combined table).
+    _perr = {}
+    _p0 = fit.parameters
+    if _p0 is not None and len(_p0) and "std_error" in _p0.columns:
+        for _, _r in _p0.iterrows():
+            _perr.setdefault((_r["component"], _r["parameter"]), []).append(float(_r["std_error"]))
+
+    def _err(cid, param, idx=0):
+        vals = _perr.get((cid, param), [])
+        return vals[idx] if idx < len(vals) else None
+
+    rows = []
+    for c in fit.components:
+        _a_errs = _perr.get((c.component_id, "A_mT"), [])
+        avals = [(n.isotope, n.label, n.A_mT, (_a_errs[i] if i < len(_a_errs) else None))
+                 for i, n in enumerate(c.nuclei)]
+        _w_err = _err(c.component_id, "weight")
+        _frac = 100.0 * weights[c.component_id] / tot
+        _frac_err = (100.0 * _w_err / tot) if _w_err is not None else None
+        rows.append({
+            "component": c.display_name, "assignment": c.radical_assignment,
+            "g": c.g, "g_err": _err(c.component_id, "g"),
+            "avals": avals, "linewidth_mT": c.linewidth_mT, "lw_err": _err(c.component_id, "linewidth_mT"),
+            "eta": c.eta, "fraction_pct": _frac, "fraction_err": _frac_err,
+        })
     rows.sort(key=lambda r: -r["fraction_pct"])
     curves = {names.get(cid, cid): float(fit.weights.get(cid, 1.0)) * np.asarray(cv, float)
               for cid, cv in fit.component_curves.items()}
@@ -606,7 +626,41 @@ def fit_to_report_entry(name, fit, mw, kind="fit", field_shift=0.0):
             "methods_text": publication_methods_paragraph(fit, mw, field_shift)}
 
 
-def docx_report_button(entries, key, meta=None, label="📄 Prepare publication DOCX report"):
+def _safe_label(s):
+    return re.sub(r"[^A-Za-z0-9._-]+", "_", str(s)).strip("_") or "OpenSymEPR"
+
+
+def export_base_label():
+    return _safe_label(st.session_state.get("export_base_label")
+                       or sample_name or project_title or "OpenSymEPR")
+
+
+def export_filename(export_type: str, ext: str) -> str:
+    """Compose a saved-file name: <label>_<type>_<YYYYMMDD-HHMMSS>.<ext>."""
+    return f"{export_base_label()}_{export_type}_{_now.now().strftime('%Y%m%d-%H%M%S')}.{ext}"
+
+
+def export_tag_meta(export_type: str) -> dict:
+    """Date-time + type + label stamp embedded inside exports."""
+    return {"label": export_base_label(), "export_type": export_type,
+            "exported": _now.now().strftime("%Y-%m-%d %H:%M:%S")}
+
+
+def export_label_controls(key: str):
+    """Editable export label with presets; drives every download's file name."""
+    presets = {"Sample name": sample_name or "", "Project title": project_title or "",
+               "Custom": st.session_state.get("export_base_label", "") or "OpenSymEPR"}
+    c1, c2 = st.columns([1, 2])
+    choice = c1.selectbox("Name preset", list(presets.keys()), key=f"{key}_preset")
+    _default = presets.get(choice) or "OpenSymEPR"
+    label = c2.text_input("Export label (editable)", value=_default, key=f"{key}_label")
+    if label:
+        st.session_state["export_base_label"] = label
+    st.caption(f"Saved files are named  `{export_base_label()}_[type]_{_now.now().strftime('%Y%m%d')}-HHMMSS.ext`  "
+               "— your label plus an automatic date-time and export-type tag.")
+
+
+def docx_report_button(entries, key, meta=None, filetype="report", label="📄 Prepare publication DOCX report"):
     """Build + offer a publication-ready .docx report for the given normalised entries."""
     entries = [e for e in entries if e]
     if not entries:
@@ -614,15 +668,18 @@ def docx_report_button(entries, key, meta=None, label="📄 Prepare publication 
     if st.button(label, key=f"{key}_docx_btn"):
         try:
             from epr_simfit import docx_report as _dr
-            st.session_state[f"{key}_docx"] = _dr.build_report_docx(entries, meta=meta)
+            _meta = {**(meta or {}), **export_tag_meta(f"{filetype}_docx")}
+            st.session_state[f"{key}_docx"] = _dr.build_report_docx(entries, meta=_meta)
+            st.session_state[f"{key}_docx_name"] = export_filename(f"{filetype}_report", "docx")
             st.session_state.pop(f"{key}_docx_err", None)
         except Exception as exc:  # noqa: BLE001
             st.session_state[f"{key}_docx_err"] = str(exc)
     if f"{key}_docx" in st.session_state:
         st.download_button("⬇ Download DOCX report", st.session_state[f"{key}_docx"],
-                           file_name=f"OpenSymEPR_{key}_report.docx",
+                           file_name=st.session_state.get(f"{key}_docx_name", "OpenSymEPR_report.docx"),
                            mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
                            key=f"{key}_docx_dl")
+        st.caption("Named: " + st.session_state.get(f"{key}_docx_name", ""))
     if st.session_state.get(f"{key}_docx_err"):
         st.caption("DOCX report error: " + st.session_state[f"{key}_docx_err"])
 
@@ -1443,6 +1500,10 @@ Use model comparison as a guide; chemical validation always takes precedence.
 with TAB["Export"]:
     st.subheader("Export")
 
+    # ── Export naming: editable label + auto date-time/type tag ───────────────
+    with st.expander("🏷 Export naming (label + auto date-time + type tag)", expanded=False):
+        export_label_controls("export_tab")
+
     # ── Publication export: choose which results to bundle ────────────────────
     st.markdown("### Publication export — choose what to include")
     st.caption("Bundle the manual mixture, the automated fit, or both — each with its "
@@ -1500,10 +1561,13 @@ with TAB["Export"]:
             with st.spinner("Rendering 600-dpi figures and building the ZIP..."):
                 st.session_state["pub_export_zip"] = pub_export.build_selection_zip(
                     items, meta={"software": "Open-Sym-EPR", "project": project_title,
-                                 "sample": sample_name, "mw_frequency_GHz": mw_freq})
+                                 "sample": sample_name, "mw_frequency_GHz": mw_freq,
+                                 **export_tag_meta("publication_zip")})
+                st.session_state["pub_export_zip_name"] = export_filename("publication_export", "zip")
         st.download_button("⬇ Download publication export ZIP",
                            data=st.session_state.get("pub_export_zip", b""),
-                           file_name="Open-Sym-EPR_publication_export.zip", mime="application/zip",
+                           file_name=st.session_state.get("pub_export_zip_name", "OpenSymEPR_publication_export.zip"),
+                           mime="application/zip",
                            disabled="pub_export_zip" not in st.session_state, key="pub_export_dl")
 
         # ── Publication-ready DOCX report (figures + captions, decomposed-parameter
@@ -2101,7 +2165,9 @@ with TAB["Adduct mixture"]:
                              "(normalised to 100%)."),
         }
         st.session_state["manual_mixture_entry"] = _manual_entry   # reused by the Export tab
-        docx_report_button([_manual_entry], key="mix_manual",
+        with st.expander("🏷 Export naming (label + auto date-time + type tag)", expanded=False):
+            export_label_controls("mix_tab")
+        docx_report_button([_manual_entry], key="mix_manual", filetype="manual_mixture",
                            meta={"software": "Open-Sym-EPR", "project": project_title, "sample": sample_name,
                                  "microwave_frequency_GHz": mw_freq})
         # Persist for the Export tab (publication export of the manual mixture)
@@ -2192,7 +2258,7 @@ with TAB["Adduct mixture"]:
                 docx_report_button(
                     [fit_to_report_entry("Automated spin-adduct mixture fit", res["fit"], _mix_mw,
                                          kind="mixture", field_shift=float(st.session_state.get("field_shift_mT", 0.0)))],
-                    key="mix_fit",
+                    key="mix_fit", filetype="mixture_fit",
                     meta={"software": "Open-Sym-EPR", "project": project_title, "sample": sample_name,
                           "microwave_frequency_GHz": mw_freq})
 
@@ -2268,13 +2334,16 @@ try:
         mixture=_proj_mixture,
         fit_store=_proj_store,
         ui_state=_proj_ui,
+        config=export_tag_meta("checkpoint"),
         preprocess={"field_shift_mT": float(st.session_state.get("field_shift_mT", 0.0))},
     )
     _n_store = len(_proj_store)
+    _ckpt_name = export_filename("checkpoint", "simepr.json")
     st.download_button(
         f"⬇ Save checkpoint (.simepr.json){f' — {_n_store} saved fit(s)' if _n_store else ''}",
-        data=_proj_bytes, file_name="OpenSymEPR_checkpoint.simepr.json", mime="application/json",
+        data=_proj_bytes, file_name=_ckpt_name, mime="application/json",
         help="Reopen from the sidebar Project panel to resume where you left off.")
+    st.caption("Named: " + _ckpt_name)
     st.caption("💡 Tip: save a checkpoint before closing the app so no work is lost.")
 except Exception as _pse:  # noqa: BLE001
     st.caption(f"(Project save unavailable: {_pse})")
