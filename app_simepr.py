@@ -578,8 +578,29 @@ def fit_to_report_entry(name, fit, mw, kind="fit", field_shift=0.0):
     curves = {names.get(cid, cid): float(fit.weights.get(cid, 1.0)) * np.asarray(cv, float)
               for cid, cv in fit.component_curves.items()}
     m = fit.metrics
+    # Detailed fitted-parameter table (every parameter, value, error, bounds, status)
+    param_df = None
+    _p = fit.parameters
+    if _p is not None and len(_p):
+        param_df = pd.DataFrame({
+            "Component": _p["component"], "Parameter": _p["parameter"],
+            "Value": _p["value"],
+            "Std. error": _p["std_error"] if "std_error" in _p.columns else None,
+            "Lower": _p["lower_bound"] if "lower_bound" in _p.columns else None,
+            "Upper": _p["upper_bound"] if "upper_bound" in _p.columns else None,
+            "Status": _p["fitted_or_fixed"] if "fitted_or_fixed" in _p.columns else None,
+        })
+    fraction_df = getattr(fit, "component_fractions", None)
+    mc_df = None
+    if getattr(fit, "mc_errors", None) is not None and len(fit.mc_errors):
+        _mc = fit.mc_errors
+        mc_df = pd.DataFrame({
+            "Component": _mc["component"], "Parameter": _mc["parameter"], "Value": _mc["value"],
+            "MC σ": _mc["mc_std"], "CI 2.5%": _mc["ci_2.5%"], "CI 97.5%": _mc["ci_97.5%"],
+        })
     return {"name": name, "kind": kind, "field_mT": fit.field_mT, "experimental": fit.experimental,
             "total": fit.fit_total, "curves": curves, "rows": rows,
+            "param_df": param_df, "fraction_df": fraction_df, "mc_df": mc_df,
             "R2": m.get("R2"), "nrmse": m.get("normalized RMSE"), "aic": m.get("AIC"), "bic": m.get("BIC"),
             "n_params": fit.n_parameters,
             "methods_text": publication_methods_paragraph(fit, mw, field_shift)}

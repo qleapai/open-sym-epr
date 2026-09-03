@@ -85,6 +85,40 @@ def _report_figure(entry) -> bytes:
     return buf.getvalue()
 
 
+def _fmt(v):
+    """Compact publication formatting for a table cell value."""
+    try:
+        import math
+        f = float(v)
+        if math.isnan(f):
+            return "—"
+        if math.isinf(f):
+            return "∞" if f > 0 else "−∞"
+        if f == int(f) and abs(f) < 1e6:
+            return str(int(f))
+        return f"{f:.5g}"
+    except (TypeError, ValueError, OverflowError):
+        return "" if v is None else str(v)
+
+
+def _add_df_table(doc, df, tab_no, caption_text):
+    """Render a whole DataFrame as a bordered, colour-free Word table with a caption."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    tcap = doc.add_paragraph()
+    _run(tcap, f"Table {tab_no}. ", bold=True)
+    _run(tcap, caption_text)
+    cols = [str(c) for c in df.columns]
+    table = doc.add_table(rows=1, cols=len(cols))
+    table.style = "Table Grid"
+    table.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for j, c in enumerate(cols):
+        _run(table.rows[0].cells[j].paragraphs[0], c, bold=True)
+    for _, row in df.iterrows():
+        cells = table.add_row().cells
+        for j, c in enumerate(df.columns):
+            cells[j].text = _fmt(row[c])
+
+
 def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
     from docx import Document
     from docx.shared import Pt, Inches, RGBColor
@@ -161,6 +195,25 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
             cells[3].text = _avals_text(r.get("avals", []))
             cells[4].text = f"{r.get('linewidth_mT', float('nan')):.3f}"
             cells[5].text = f"{r.get('fraction_pct', 0.0):.1f}"
+
+        # ── Detailed fitted-parameter table (every parameter, value, error, bounds) ──
+        if e.get("param_df") is not None and len(e["param_df"]):
+            tab_no += 1
+            _add_df_table(doc, e["param_df"], tab_no,
+                          "Complete list of fitted spin-Hamiltonian parameters — value, standard error, "
+                          "search bounds, and whether each was optimised or held fixed. Hyperfine (A) and "
+                          "linewidth are in mT; weights are in arbitrary units.")
+        # ── Component-fraction table ──
+        if e.get("fraction_df") is not None and len(e["fraction_df"]):
+            tab_no += 1
+            _add_df_table(doc, e["fraction_df"], tab_no,
+                          "Relative spectral fractions (integrated contribution) of each decomposed component.")
+        # ── Monte-Carlo (bootstrap) uncertainties ──
+        if e.get("mc_df") is not None and len(e["mc_df"]):
+            tab_no += 1
+            _add_df_table(doc, e["mc_df"], tab_no,
+                          "Monte-Carlo (bootstrap) parameter uncertainties from refitting many noise "
+                          "realisations: best value, standard deviation, and the 95% confidence interval.")
 
         if any(k in e for k in ("R2", "nrmse", "aic", "bic")):
             gp = doc.add_paragraph()

@@ -41,6 +41,24 @@ def test_iso_superscript_and_avals():
     assert docx_report._avals_text([("14N", "N", 1.52)]) == "¹⁴N 15.2"
 
 
+def test_detailed_parameter_tables_included():
+    import pandas as pd
+    e = _entry()
+    e["param_df"] = pd.DataFrame({
+        "Component": ["pbn_oh", "pbn_oh"], "Parameter": ["weight", "A_mT"],
+        "Value": [0.6, 1.52], "Std. error": [0.01, 0.02],
+        "Lower": [0.0, 1.3], "Upper": [None, 1.7], "Status": ["fitted", "fitted"]})
+    e["mc_df"] = pd.DataFrame({
+        "Component": ["pbn_oh"], "Parameter": ["A_mT"], "Value": [1.52],
+        "MC σ": [0.03], "CI 2.5%": [1.46], "CI 97.5%": [1.58]})
+    xml = zipfile.ZipFile(io.BytesIO(docx_report.build_report_docx([e]))).read(
+        "word/document.xml").decode("utf-8")
+    # summary Table 1, detailed params Table 2, Monte-Carlo Table 3
+    assert "Table 1." in xml and "Table 2." in xml and "Table 3." in xml
+    assert "Std. error" in xml and "MC" in xml
+    assert "fitted spin-Hamiltonian parameters" in xml
+
+
 def test_multiple_entries_number_sequentially():
     e2 = _entry(); e2["name"] = "Second"
     data = docx_report.build_report_docx([_entry(), e2])
