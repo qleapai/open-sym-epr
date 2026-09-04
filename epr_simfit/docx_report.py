@@ -50,6 +50,37 @@ def _sym(p, kind):
         _run(p, "a", italic=True); _run(p, "iso", sub=True); _run(p, " (G)")
 
 
+import re as _re
+
+
+def _species_runs(name: str):
+    """Split a species/adduct name into (text, style) runs so chemical formulas render
+    with subscripts (PBN-CH3 -> PBN-CH₃) and isotope mass numbers with superscripts
+    (Nitroxide-14N -> Nitroxide-¹⁴N). style ∈ {None, 'sub', 'sup'}."""
+    runs, i = [], 0
+    for m in _re.finditer(r"\d+", name):
+        s, en = m.span()
+        if s > i:
+            runs.append((name[i:s], None))
+        pre = name[s - 1] if s > 0 else ""
+        nxt = name[en] if en < len(name) else ""
+        if pre in ("", " ", "-", "(", "/", "·") and nxt[:1].isupper():
+            runs.append((m.group(), "sup"))          # isotope prefix, e.g. 14N
+        elif pre.isalpha() or pre == ")":
+            runs.append((m.group(), "sub"))           # formula subscript, e.g. CH3
+        else:
+            runs.append((m.group(), None))
+        i = en
+    if i < len(name):
+        runs.append((name[i:], None))
+    return runs
+
+
+def _add_species(paragraph, name: str, *, bold=False):
+    for text, style in _species_runs(name):
+        _run(paragraph, text, bold=bold, sub=(style == "sub"), sup=(style == "sup"))
+
+
 _SUP = str.maketrans("0123456789", "⁰¹²³⁴⁵⁶⁷⁸⁹")
 
 
@@ -224,8 +255,8 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
         p = hdr[6].paragraphs[0]; _run(p, "Fraction (%)", bold=True)
         for r in rows:
             cells = table.add_row().cells
-            cells[0].text = str(r.get("component", ""))
-            cells[1].text = str(r.get("assignment", ""))
+            _add_species(cells[0].paragraphs[0], str(r.get("component", "")))
+            _add_species(cells[1].paragraphs[0], str(r.get("assignment", "")))
             cells[2].text = _val_err(r.get("g"), r.get("g_err"), ".5f")
             cells[3].text = _avals_text_err(r.get("avals", []))
             cells[4].text = _val_err(r.get("linewidth_mT"), r.get("lw_err"), ".3f")

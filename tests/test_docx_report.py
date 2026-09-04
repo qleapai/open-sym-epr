@@ -36,6 +36,15 @@ def test_docx_is_valid_and_has_content():
     assert any(n.startswith("word/media/") for n in zf.namelist())
 
 
+def test_species_runs_formats_subscripts_and_isotopes():
+    r = dict(docx_report._species_runs("PBN-CH3"))
+    assert r.get("3") == "sub"                       # formula subscript
+    r2 = docx_report._species_runs("Nitroxide-14N")
+    assert ("14", "sup") in r2                        # isotope superscript
+    # ratio patterns like 1:2:2:1 are left normal
+    assert all(s is None for _t, s in docx_report._species_runs("DMPO-OH (1:2:2:1)"))
+
+
 def test_iso_superscript_and_avals():
     assert docx_report._iso_label("14N") == "¹⁴N"
     assert docx_report._avals_text([("14N", "N", 1.52)]) == "¹⁴N 15.2"
