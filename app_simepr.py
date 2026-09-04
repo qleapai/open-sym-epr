@@ -593,8 +593,45 @@ def fit_to_report_entry(name, fit, mw, kind="fit", field_shift=0.0):
             "g": c.g, "g_err": _err(c.component_id, "g"),
             "avals": avals, "linewidth_mT": c.linewidth_mT, "lw_err": _err(c.component_id, "linewidth_mT"),
             "eta": c.eta, "fraction_pct": _frac, "fraction_err": _frac_err,
+            "weight": weights[c.component_id], "weight_err": _w_err,
         })
     rows.sort(key=lambda r: -r["fraction_pct"])
+    # Baseline constant (for the parameter tables) and structured symbolic parameter rows.
+    baseline = None
+    param_rows = []
+    if _p0 is not None and len(_p0):
+        _b = _p0[(_p0["component"] == "baseline") & (_p0["parameter"] == "constant")]
+        if len(_b):
+            baseline = {"value": float(_b.iloc[0]["value"]),
+                        "err": float(_b.iloc[0]["std_error"]) if "std_error" in _b.columns else None}
+        _nuc_iso = {c.component_id: [n.isotope for n in c.nuclei] for c in fit.components}
+        _acount = {}
+        for idx, (_, r) in enumerate(_p0.iterrows()):
+            comp, par = r["component"], r["parameter"]
+            disp = names.get(comp, comp)
+            val = float(r["value"])
+            err = float(r["std_error"]) if "std_error" in _p0.columns else None
+            lo = r.get("lower_bound"); hi = r.get("upper_bound")
+            if par == "weight":
+                base, sub, tail, desc, unit = "W", disp, "", f"{disp} weight", ""
+            elif par == "g":
+                base, sub, tail, desc, unit = "g", disp, "", f"{disp} g-factor", ""
+            elif par == "linewidth_mT":
+                base, sub, tail, desc, unit = "ΔB", "pp", f" ({disp})", f"{disp} linewidth", "mT"
+            elif par == "A_mT":
+                k = _acount.get(comp, 0); _acount[comp] = k + 1
+                _isos = _nuc_iso.get(comp, [])
+                iso = _isos[k] if k < len(_isos) else ""
+                sym = "".join(ch for ch in iso if not ch.isdigit()) or "?"
+                base, sub, tail, desc, unit = "A", sym, f" ({disp})", f"{disp} {iso} hyperfine", "mT"
+            elif par == "constant":
+                base, sub, tail, desc, unit = "C", "baseline", "", "Baseline constant offset", ""
+            elif par == "linear":
+                base, sub, tail, desc, unit = "C", "1,baseline", "", "Baseline linear term", ""
+            else:
+                base, sub, tail, desc, unit = str(par), "", "", str(par), ""
+            param_rows.append({"idx": idx, "base": base, "sub": sub, "tail": tail, "desc": desc,
+                               "value": val, "err": err, "unit": unit, "lower": lo, "upper": hi})
     curves = {names.get(cid, cid): float(fit.weights.get(cid, 1.0)) * np.asarray(cv, float)
               for cid, cv in fit.component_curves.items()}
     m = fit.metrics
@@ -637,6 +674,7 @@ def fit_to_report_entry(name, fit, mw, kind="fit", field_shift=0.0):
             "param_df": param_df, "fraction_df": fraction_df, "mc_df": mc_df,
             "R2": m.get("R2"), "nrmse": m.get("normalized RMSE"), "aic": m.get("AIC"), "bic": m.get("BIC"),
             "n_params": fit.n_parameters, "gof": _gof, "species": _species, "results_text": _results,
+            "baseline": baseline, "param_rows": param_rows,
             "methods_text": publication_methods_paragraph(fit, mw, field_shift)}
 
 

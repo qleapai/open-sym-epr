@@ -53,19 +53,24 @@ def test_iso_superscript_and_avals():
 def test_detailed_parameter_tables_included():
     import pandas as pd
     e = _entry()
-    e["param_df"] = pd.DataFrame({
-        "Component": ["pbn_oh", "pbn_oh"], "Parameter": ["weight", "A_mT"],
-        "Value": [0.6, 1.52], "Std. error": [0.01, 0.02],
-        "Lower": [0.0, 1.3], "Upper": [None, 1.7], "Status": ["fitted", "fitted"]})
+    e["baseline"] = {"value": -0.003, "err": 0.004}
+    e["param_rows"] = [
+        {"idx": 0, "base": "W", "sub": "PBN-OH", "tail": "", "desc": "PBN-OH weight",
+         "value": 0.6, "err": 0.02, "unit": "", "lower": 0.0, "upper": float("inf")},
+        {"idx": 1, "base": "A", "sub": "N", "tail": " (PBN-OH)", "desc": "PBN-OH 14N hyperfine",
+         "value": 1.52, "err": 0.02, "unit": "mT", "lower": 1.4, "upper": 1.55},
+    ]
     e["mc_df"] = pd.DataFrame({
         "Component": ["pbn_oh"], "Parameter": ["A_mT"], "Value": [1.52],
         "MC σ": [0.03], "CI 2.5%": [1.46], "CI 97.5%": [1.58]})
     xml = zipfile.ZipFile(io.BytesIO(docx_report.build_report_docx([e]))).read(
         "word/document.xml").decode("utf-8")
-    # summary Table 1, detailed params Table 2, Monte-Carlo Table 3
+    # combined Table 1, journal param Table 2, Monte-Carlo Table 3
     assert "Table 1." in xml and "Table 2." in xml and "Table 3." in xml
-    assert "Std. error" in xml and "MC" in xml
-    assert "fitted spin-Hamiltonian parameters" in xml
+    assert "Fitted Value" in xml and "Lower Bound" in xml and "Upper Bound" in xml
+    assert "+∞" in xml                                    # unconstrained upper bound
+    assert "parameter optimisation list" in xml
+    assert "Baseline Constant" in xml                     # baseline row in Table 1
 
 
 def test_multiple_entries_number_sequentially():

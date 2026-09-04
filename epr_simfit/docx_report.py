@@ -165,15 +165,41 @@ def _fmt(v):
         return "" if v is None else str(v)
 
 
+def _set_booktabs(table):
+    """Journal 'three-line' look: top rule, header rule, bottom rule; no colour, no
+    vertical lines (like booktabs). Keeps everything black-and-white."""
+    from docx.oxml.ns import qn
+    from docx.oxml import OxmlElement
+
+    def _edge(tag, val, sz="8"):
+        el = OxmlElement(f"w:{tag}")
+        el.set(qn("w:val"), val); el.set(qn("w:sz"), sz)
+        el.set(qn("w:space"), "0"); el.set(qn("w:color"), "000000")
+        return el
+
+    tblPr = table._tbl.tblPr
+    for old in tblPr.findall(qn("w:tblBorders")):
+        tblPr.remove(old)
+    borders = OxmlElement("w:tblBorders")
+    for tag, val, sz in (("top", "single", "8"), ("bottom", "single", "8"),
+                         ("left", "nil", "0"), ("right", "nil", "0"),
+                         ("insideH", "nil", "0"), ("insideV", "nil", "0")):
+        borders.append(_edge(tag, val, sz))
+    tblPr.append(borders)
+    for c in table.rows[0].cells:                 # rule under the header row
+        tcPr = c._tc.get_or_add_tcPr()
+        tcb = OxmlElement("w:tcBorders"); tcb.append(_edge("bottom", "single", "6"))
+        tcPr.append(tcb)
+
+
 def _add_df_table(doc, df, tab_no, caption_text):
-    """Render a whole DataFrame as a bordered, colour-free Word table with a caption."""
+    """Render a whole DataFrame as a three-line (booktabs) colour-free table with a caption."""
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     tcap = doc.add_paragraph()
     _run(tcap, f"Table {tab_no}. ", bold=True)
     _run(tcap, caption_text)
     cols = [str(c) for c in df.columns]
     table = doc.add_table(rows=1, cols=len(cols))
-    table.style = "Table Grid"
     table.alignment = WD_ALIGN_PARAGRAPH.CENTER
     for j, c in enumerate(cols):
         _run(table.rows[0].cells[j].paragraphs[0], c, bold=True)
@@ -181,6 +207,51 @@ def _add_df_table(doc, df, tab_no, caption_text):
         cells = table.add_row().cells
         for j, c in enumerate(df.columns):
             cells[j].text = _fmt(row[c])
+    _set_booktabs(table)
+
+
+def _bound_str(v, unit=""):
+    import math
+    try:
+        f = float(v)
+    except (TypeError, ValueError):
+        return "—"
+    if math.isinf(f):
+        return "+∞" if f > 0 else "−∞"
+    if f == 0:
+        return "0"
+    return format(f, ".4g") + (f" {unit}" if unit else "")
+
+
+def _journal_param_table(doc, tab_no, param_rows):
+    """Table 2 aesthetic: Idx | Parameter (symbolic) | Description | Fitted Value (±Std Err)
+    | Lower Bound | Upper Bound — three-line, colour-free, proper subscripts."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    tcap = doc.add_paragraph()
+    _run(tcap, f"Table {tab_no}. ", bold=True)
+    _run(tcap, "Complete parameter optimisation list with statistical uncertainties and constraints. "
+               "Values are the optimised estimates ± 1σ standard error; bounds are the search limits "
+               "(±∞ where unconstrained).")
+    heads = ["Idx", "Parameter", "Description", "Fitted Value (± Std Err)", "Lower Bound", "Upper Bound"]
+    table = doc.add_table(rows=1, cols=len(heads))
+    table.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    for j, h in enumerate(heads):
+        _run(table.rows[0].cells[j].paragraphs[0], h, bold=True)
+    for r in param_rows:
+        cells = table.add_row().cells
+        cells[0].text = str(r.get("idx", ""))
+        pp = cells[1].paragraphs[0]
+        _run(pp, r.get("base", ""), italic=True)
+        if r.get("sub"):
+            _run(pp, str(r["sub"]), sub=True)
+        if r.get("tail"):
+            _run(pp, str(r["tail"]))
+        cells[2].text = str(r.get("desc", ""))
+        _u = r.get("unit", "")
+        cells[3].text = _val_err(r.get("value"), r.get("err"), ".4g") + (f" {_u}" if _u else "")
+        cells[4].text = _bound_str(r.get("lower"), _u)
+        cells[5].text = _bound_str(r.get("upper"), _u)
+    _set_booktabs(table)
 
 
 def _add_methods_section(doc):
@@ -299,48 +370,66 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
             _run(cap, "The fit reproduced ")
             _sym(cap, "R2"); _run(cap, f" = {e['R2']:.3f} of the spectral variance.")
 
-        # ── Table ──
+        # ── Table 1: optimised spectral parameters (journal three-line aesthetic) ──
         tab_no += 1
         tcap = doc.add_paragraph()
         _run(tcap, f"Table {tab_no}. ", bold=True)
-        _run(tcap, "Combined isotropic spin-Hamiltonian parameters of the decomposed components — ")
-        _sym(tcap, "g"); _run(tcap, " factor, hyperfine coupling constants ")
-        _run(tcap, "a", italic=True); _run(tcap, " (G), peak-to-peak linewidth ")
-        _run(tcap, "ΔB"); _run(tcap, "pp", sub=True)
-        _run(tcap, " (mT), pseudo-Voigt mixing η, and relative spectral fraction — with standard "
-                   "errors (± 1σ) where a parameter was optimised. Assignments are candidate "
-                   "identifications requiring independent validation (isotope labelling, concentration "
-                   "series, and chemical controls).")
+        _run(tcap, "Optimised EPR spectral parameters for the identified spin species.")
 
         rows = e.get("rows", [])
-        table = doc.add_table(rows=1, cols=7)
-        table.style = "Table Grid"
+        table = doc.add_table(rows=1, cols=5)
         table.alignment = WD_ALIGN_PARAGRAPH.CENTER
         hdr = table.rows[0].cells
-        _run(hdr[0].paragraphs[0], "Component", bold=True)
-        _run(hdr[1].paragraphs[0], "Assignment", bold=True)
-        p = hdr[2].paragraphs[0]; _sym(p, "g")
-        p = hdr[3].paragraphs[0]; _sym(p, "aiso")
-        p = hdr[4].paragraphs[0]; _sym(p, "dBpp")
-        p = hdr[5].paragraphs[0]; _run(p, "η (L/G)")
-        p = hdr[6].paragraphs[0]; _run(p, "Fraction (%)", bold=True)
+        _run(hdr[0].paragraphs[0], "Species / Component", bold=True)
+        _run(hdr[1].paragraphs[0], "Relative Weight", bold=True)
+        _run(hdr[2].paragraphs[0], "g-Factor", bold=True)
+        p = hdr[3].paragraphs[0]; _run(p, "Hyperfine Coupling Constant, ", bold=True)
+        _run(p, "A", italic=True, bold=True); _run(p, " (mT)", bold=True)
+        p = hdr[4].paragraphs[0]; _run(p, "Peak-to-Peak Linewidth, ", bold=True)
+        _run(p, "ΔB", bold=True); _run(p, "pp", sub=True, bold=True); _run(p, " (mT)", bold=True)
         for r in rows:
             cells = table.add_row().cells
             _add_species(cells[0].paragraphs[0], str(r.get("component", "")))
-            _add_species(cells[1].paragraphs[0], str(r.get("assignment", "")))
-            cells[2].text = _val_err(r.get("g"), r.get("g_err"), ".5f")
-            cells[3].text = _avals_text_err(r.get("avals", []))
-            cells[4].text = _val_err(r.get("linewidth_mT"), r.get("lw_err"), ".3f")
-            cells[5].text = _num(r.get("eta", 0.5), ".2f")
-            cells[6].text = _val_err(r.get("fraction_pct", 0.0), r.get("fraction_err"), ".1f")
+            cells[1].text = _val_err(r.get("weight"), r.get("weight_err"), ".3f")
+            cells[2].text = _val_err(r.get("g"), r.get("g_err"), ".6f")
+            # multi-line hyperfine cell: one 'A_x = value ± err' line per nucleus
+            _avs = r.get("avals", [])
+            hc = cells[3]
+            if not _avs:
+                hc.paragraphs[0].text = "—"
+            else:
+                for k, item in enumerate(_avs):
+                    iso, A = item[0], item[2]
+                    aerr = item[3] if len(item) > 3 else None
+                    sym = "".join(ch for ch in iso if not ch.isdigit()) or "?"
+                    para = hc.paragraphs[0] if k == 0 else hc.add_paragraph()
+                    _run(para, "A", italic=True); _run(para, sym, sub=True)
+                    _run(para, " = " + _val_err(A, aerr, ".4g"))
+            cells[4].text = _val_err(r.get("linewidth_mT"), r.get("lw_err"), ".4g")
+        # baseline constant row
+        _bl = e.get("baseline")
+        if _bl:
+            cells = table.add_row().cells
+            cells[0].text = "Baseline Constant"
+            cells[1].text = _val_err(_bl.get("value"), _bl.get("err"), ".4g")
+            cells[2].text = "—"; cells[3].paragraphs[0].text = "—"; cells[4].text = "—"
+        _set_booktabs(table)
+        note = doc.add_paragraph()
+        _run(note, "Note: ", bold=True)
+        _run(note, "g", italic=True); _run(note, ": isotropic g-factor; ")
+        _run(note, "A", italic=True); _run(note, "N", sub=True); _run(note, " and ")
+        _run(note, "A", italic=True); _run(note, "H", sub=True)
+        _run(note, ": hyperfine coupling constants for the ¹⁴N and β-proton (¹H) nuclei; ")
+        _run(note, "ΔB"); _run(note, "pp", sub=True)
+        _run(note, ": peak-to-peak derivative linewidth. Relative weight is the component's "
+                   "amplitude coefficient (± 1σ). Assignments are candidate identifications requiring "
+                   "independent validation.")
 
-        # ── Detailed fitted-parameter table (every parameter, value, error, bounds) ──
-        if e.get("param_df") is not None and len(e["param_df"]):
+        # ── Table 2: complete parameter list (symbolic, with bounds) ──
+        if e.get("param_rows"):
             tab_no += 1
-            _add_df_table(doc, e["param_df"], tab_no,
-                          "Complete list of fitted spin-Hamiltonian parameters — value, standard error, "
-                          "search bounds, and whether each was optimised or held fixed. Hyperfine (A) and "
-                          "linewidth are in mT; weights are in arbitrary units.")
+            _journal_param_table(doc, tab_no, e["param_rows"])
+
         # ── Component-fraction table ──
         if e.get("fraction_df") is not None and len(e["fraction_df"]):
             tab_no += 1
