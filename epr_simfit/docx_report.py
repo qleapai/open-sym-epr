@@ -259,7 +259,7 @@ def _add_methods_section(doc):
     from docx.enum.text import WD_ALIGN_PARAGRAPH
     doc.add_paragraph()
     h = doc.add_paragraph()
-    _run(h, "Methods — models, equations, and statistics", bold=True, size=13)
+    _run(h, "3. Methods — models, equations, and statistics", bold=True, size=13)
 
     p = doc.add_paragraph()
     p.add_run("Continuous-wave EPR spectra were simulated from the isotropic spin Hamiltonian and fitted to "
@@ -324,6 +324,39 @@ def _add_methods_section(doc):
     d.add_run(" the number of data points.")
 
 
+def _abstract_text(entries) -> str:
+    parts = []
+    for e in entries:
+        rows = e.get("rows", [])
+        top = rows[0]["component"] if rows else "the principal species"
+        r2 = e.get("R2")
+        r2s = f"R² = {r2:.3f}" if isinstance(r2, (int, float)) else "the reported R²"
+        parts.append(
+            f"For {e['name']}, the first-derivative cw-EPR spectrum was decomposed into "
+            f"{len(rows)} paramagnetic component(s) by bounded least-squares simulation, "
+            f"reproducing {r2s} of the spectral variance; the dominant contribution was {top}.")
+    body = " ".join(parts)
+    return ("Continuous-wave X-band EPR spin-trapping spectra were quantitatively decomposed with "
+            "Open-Sym-EPR. " + body + " Optimised isotropic spin-Hamiltonian parameters (g-factor, "
+            "hyperfine coupling constants, and peak-to-peak linewidths) and relative component weights "
+            "are reported with 1σ standard errors. All spectral assignments are candidate identifications "
+            "that require independent validation by isotope labelling, concentration series, and chemical "
+            "controls.")
+
+
+def _conclusion_text(entries) -> str:
+    n = len(entries)
+    ncomp = sum(len(e.get("rows", [])) for e in entries)
+    return (f"Least-squares decomposition resolved {ncomp} paramagnetic component(s) across "
+            f"{n} spectrum(s), yielding a self-consistent set of g-factors, hyperfine coupling "
+            "constants, linewidths, and relative weights with quantified uncertainties. These "
+            "parameters provide a reproducible, quantitative basis for identifying the trapped "
+            "radicals; however, spectral agreement alone is not chemical proof. The candidate "
+            "assignments should be confirmed with authentic standards, spin-trap and solvent blanks, "
+            "concentration/kinetic series, and isotopic substitution — in particular ¹⁵N labelling "
+            "for any nitrogen-centred adduct — before mechanistic conclusions are drawn.")
+
+
 def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
     from docx import Document
     from docx.shared import Pt, Inches, RGBColor
@@ -336,10 +369,36 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
     normal.font.color.rgb = RGBColor(0, 0, 0)
 
     title = doc.add_paragraph()
-    _run(title, "EPR spin-adduct decomposition — publication report", bold=True, size=15)
+    title.alignment = WD_ALIGN_PARAGRAPH.CENTER
+    _run(title, "Quantitative EPR Spin-Trapping Analysis: Spectral Decomposition of "
+                "Radical Adducts and Nitroxide Species", bold=True, size=15)
     if meta:
         mp = doc.add_paragraph()
+        mp.alignment = WD_ALIGN_PARAGRAPH.CENTER
         _run(mp, " · ".join(f"{k}: {v}" for k, v in meta.items()), size=9)
+
+    # ── Abstract ──
+    doc.add_paragraph()
+    _run(doc.add_paragraph(), "Abstract", bold=True, size=12)
+    ap = doc.add_paragraph()
+    ap.add_run(_abstract_text(entries))
+
+    # ── 1. Introduction ──
+    _run(doc.add_paragraph(), "1. Introduction", bold=True, size=13)
+    ip = doc.add_paragraph()
+    ip.add_run(
+        "Continuous-wave electron paramagnetic resonance (cw-EPR) spin trapping is a standard "
+        "approach for detecting short-lived radicals as persistent nitroxide adducts. Because "
+        "several adducts and background nitroxides frequently overlap in the same field window, "
+        "quantitative interpretation requires decomposing the measured first-derivative spectrum "
+        "into its component spin systems. Here the experimental spectrum is modelled as a weighted "
+        "sum of isotropic spin-Hamiltonian components and fitted by bounded least squares; the "
+        "recovered g-factors, hyperfine coupling constants, linewidths, and relative weights provide "
+        "a quantitative, reproducible basis for candidate assignment, which is then evaluated against "
+        "chemical controls.")
+
+    # ── 2. Results and Discussion ──
+    _run(doc.add_paragraph(), "2. Results and Discussion", bold=True, size=13)
 
     fig_no = tab_no = 0
     for e in entries:
@@ -349,9 +408,7 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
 
         # ── Results narrative ──
         if e.get("results_text"):
-            rp = doc.add_paragraph()
-            _run(rp, "Results and discussion. ", bold=True)
-            rp.add_run(e["results_text"])
+            doc.add_paragraph().add_run(e["results_text"])
 
         # ── Figure ──
         fig_no += 1
@@ -481,8 +538,12 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
             _run(mp, "Methods (this spectrum). ", bold=True)
             mp.add_run(e["methods_text"])
 
-    # ── Global Methods, models, and equations ──
+    # ── 3. Global Methods, models, and equations ──
     _add_methods_section(doc)
+
+    # ── 4. Conclusions ──
+    _run(doc.add_paragraph(), "4. Conclusions", bold=True, size=13)
+    doc.add_paragraph().add_run(_conclusion_text(entries))
 
     doc.add_paragraph()
     note = doc.add_paragraph()

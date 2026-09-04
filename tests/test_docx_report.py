@@ -36,6 +36,14 @@ def test_docx_is_valid_and_has_content():
     assert any(n.startswith("word/media/") for n in zf.namelist())
 
 
+def test_manuscript_sections_present():
+    xml = zipfile.ZipFile(io.BytesIO(docx_report.build_report_docx([_entry()]))).read(
+        "word/document.xml").decode("utf-8")
+    for section in ("Abstract", "1. Introduction", "2. Results and Discussion",
+                    "3. Methods", "4. Conclusions"):
+        assert section in xml, f"missing section: {section}"
+
+
 def test_species_runs_formats_subscripts_and_isotopes():
     r = dict(docx_report._species_runs("PBN-CH3"))
     assert r.get("3") == "sub"                       # formula subscript
