@@ -618,11 +618,25 @@ def fit_to_report_entry(name, fit, mw, kind="fit", field_shift=0.0):
             "Component": _mc["component"], "Parameter": _mc["parameter"], "Value": _mc["value"],
             "MC σ": _mc["mc_std"], "CI 2.5%": _mc["ci_2.5%"], "CI 97.5%": _mc["ci_97.5%"],
         })
+    # Goodness-of-fit interpretation + detected-species interpretation for the narrative
+    _fq = assess_fit_quality(fit.metrics)
+    _gof = {"label": _fq.label, "r2_note": _fq.r2_note, "nrmse_note": _fq.nrmse_note, "overall": _fq.overall}
+    _species = [{"name": d.name, "assignment": d.assignment, "category": d.category,
+                 "fraction_pct": d.fraction_pct, "confidence": d.confidence, "g": d.g,
+                 "linewidth_mT": d.linewidth_mT, "nuclei_str": d.nuclei_str,
+                 "interpretation": d.interpretation, "warning": d.warning}
+                for d in suggest_intermediates(fit, threshold_pct=1.0)]
+    _top = rows[:3]
+    _results = (f"The X-band cw-EPR spectrum was decomposed into {len(rows)} paramagnetic component(s). "
+                "The principal contributions were "
+                + ", ".join(f"{r['component']} ({r['fraction_pct']:.1f}%)" for r in _top)
+                + f". The model reproduced R² = {m.get('R2', float('nan')):.3f} of the spectral "
+                  f"variance ({_fq.label.lower()}); normalised RMSE = {m.get('normalized RMSE', float('nan')):.3f}.")
     return {"name": name, "kind": kind, "field_mT": fit.field_mT, "experimental": fit.experimental,
             "total": fit.fit_total, "curves": curves, "rows": rows,
             "param_df": param_df, "fraction_df": fraction_df, "mc_df": mc_df,
             "R2": m.get("R2"), "nrmse": m.get("normalized RMSE"), "aic": m.get("AIC"), "bic": m.get("BIC"),
-            "n_params": fit.n_parameters,
+            "n_params": fit.n_parameters, "gof": _gof, "species": _species, "results_text": _results,
             "methods_text": publication_methods_paragraph(fit, mw, field_shift)}
 
 

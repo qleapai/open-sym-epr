@@ -183,6 +183,76 @@ def _add_df_table(doc, df, tab_no, caption_text):
             cells[j].text = _fmt(row[c])
 
 
+def _add_methods_section(doc):
+    """Methods section: models + fitting statistics with properly formatted equations."""
+    from docx.enum.text import WD_ALIGN_PARAGRAPH
+    doc.add_paragraph()
+    h = doc.add_paragraph()
+    _run(h, "Methods — models, equations, and statistics", bold=True, size=13)
+
+    p = doc.add_paragraph()
+    p.add_run("Continuous-wave EPR spectra were simulated from the isotropic spin Hamiltonian and fitted to "
+              "the experimental first-derivative spectrum by bounded non-linear least squares "
+              "(scipy.optimize.least_squares, trust-region reflective) in Open-Sym-EPR. Each paramagnetic "
+              "component was described by an isotropic g factor, one or more isotropic hyperfine coupling "
+              "constants, and a peak-to-peak linewidth with a pseudo-Voigt lineshape; the composite spectrum "
+              "is the weighted sum of the component first-derivative lineshapes. Relative spectral fractions "
+              "are the normalised component weights; standard errors are from the covariance matrix, "
+              "optionally refined by Monte-Carlo (bootstrap) refitting.")
+
+    def eq(parts, label=None):
+        q = doc.add_paragraph()
+        q.alignment = WD_ALIGN_PARAGRAPH.CENTER
+        for text, style in parts:
+            _run(q, text, italic=(style == "i"), sub=(style == "sub"), sup=(style == "sup"))
+        if label:
+            _run(q, "          (" + label + ")")
+
+    _run(doc.add_paragraph(), "Spin Hamiltonian", bold=True)
+    eq([("Ĥ = μ", None), ("B", "sub"), (" ", None), ("B", "i"), ("0", "sub"), (" ", None),
+        ("g", "i"), (" Ŝ  +  Σ", None), ("i", "sub"), ("  Ŝ · ", None), ("A", "i"), ("i", "sub"),
+        (" · Î", None), ("i", "sub")], "1")
+
+    _run(doc.add_paragraph(), "Pseudo-Voigt lineshape and composite spectrum", bold=True)
+    eq([("V(", None), ("B", "i"), (") = η L(", None), ("B", "i"), (") + (1 − η) G(", None),
+        ("B", "i"), (")", None)], "2")
+    eq([("ŷ(", None), ("B", "i"), (") = Σ", None), ("i", "sub"), (" ", None), ("w", "i"), ("i", "sub"),
+        (" V", None), ("i", "sub"), ("′(", None), ("B", "i"), (")", None)], "3")
+
+    _run(doc.add_paragraph(), "Objective function and goodness-of-fit statistics", bold=True)
+    eq([("χ", "i"), ("2", "sup"), (" = Σ", None), ("i", "sub"), (" [ ", None), ("y", "i"), ("i", "sub"),
+        (" − ŷ", None), ("i", "sub"), ("(θ) ]", None), ("2", "sup")], "4")
+    eq([("R", "i"), ("2", "sup"), (" = 1 − Σ", None), ("i", "sub"), ("(", None), ("y", "i"), ("i", "sub"),
+        ("−ŷ", None), ("i", "sub"), (")", None), ("2", "sup"), (" / Σ", None), ("i", "sub"), ("(", None),
+        ("y", "i"), ("i", "sub"), ("−ȳ)", None), ("2", "sup")], "5")
+    eq([("NRMSE = RMSE / (", None), ("y", "i"), ("max", "sub"), (" − ", None), ("y", "i"), ("min", "sub"),
+        ("),   RMSE = √(RSS / ", None), ("n", "i"), (")", None)], "6")
+    eq([("AIC = 2", None), ("k", "i"), (" + ", None), ("n", "i"), (" ln(RSS/", None), ("n", "i"), ("),   ",
+        None), ("BIC = ", None), ("k", "i"), (" ln(", None), ("n", "i"), (") + ", None), ("n", "i"),
+        (" ln(RSS/", None), ("n", "i"), (")", None)], "7")
+
+    d = doc.add_paragraph()
+    _run(d, "where ", italic=True)
+    _run(d, "μ"); _run(d, "B", sub=True)
+    d.add_run(" is the Bohr magneton, ")
+    _run(d, "B", italic=True); _run(d, "0", sub=True)
+    d.add_run(" the static magnetic field, ")
+    _run(d, "g", italic=True)
+    d.add_run(" the g factor, Ŝ and Î the electron and nuclear spin operators, ")
+    _run(d, "A", italic=True); _run(d, "i", sub=True)
+    d.add_run(" the isotropic hyperfine coupling of nucleus i, η the Lorentzian/Gaussian mixing, ")
+    _run(d, "w", italic=True); _run(d, "i", sub=True)
+    d.add_run(" the component weight, θ the fitted-parameter vector, ")
+    _run(d, "y", italic=True); _run(d, "i", sub=True)
+    d.add_run(" and ŷ")
+    _run(d, "i", sub=True)
+    d.add_run(" the experimental and simulated intensities, ȳ their mean, RSS the residual sum of squares, ")
+    _run(d, "k", italic=True)
+    d.add_run(" the number of free parameters, and ")
+    _run(d, "n", italic=True)
+    d.add_run(" the number of data points.")
+
+
 def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
     from docx import Document
     from docx.shared import Pt, Inches, RGBColor
@@ -206,10 +276,11 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
         h = doc.add_paragraph()
         _run(h, e["name"], bold=True, size=12)
 
-        if e.get("methods_text"):
-            mp = doc.add_paragraph()
-            _run(mp, "Methods. ", bold=True)
-            mp.add_run(e["methods_text"])
+        # ── Results narrative ──
+        if e.get("results_text"):
+            rp = doc.add_paragraph()
+            _run(rp, "Results and discussion. ", bold=True)
+            rp.add_run(e["results_text"])
 
         # ── Figure ──
         fig_no += 1
@@ -289,6 +360,40 @@ def build_report_docx(entries: list[dict], meta: dict | None = None) -> bytes:
             _run(gp, f"normalised RMSE = {e.get('nrmse', float('nan')):.4f}; "
                      f"AIC = {e.get('aic', float('nan')):.1f}; BIC = {e.get('bic', float('nan')):.1f}"
                      + (f"; {e['n_params']} free parameters." if e.get("n_params") else "."))
+
+        # ── Goodness-of-fit interpretation ──
+        _gof = e.get("gof") or {}
+        if _gof:
+            ip = doc.add_paragraph()
+            _run(ip, "Interpretation. ", bold=True)
+            ip.add_run(" ".join(x for x in (_gof.get("r2_note"), _gof.get("nrmse_note"),
+                                            _gof.get("overall")) if x))
+
+        # ── Per-species interpretation ──
+        _species = e.get("species") or []
+        if _species:
+            sp = doc.add_paragraph()
+            _run(sp, "Detected paramagnetic species (candidate assignments). ", bold=True)
+            for d in _species:
+                b = doc.add_paragraph(style="List Bullet")
+                _add_species(b, str(d.get("name", "")), bold=True)
+                _run(b, f" — {d.get('fraction_pct', 0.0):.1f}% ({d.get('confidence', '')}); ")
+                _sym(b, "g"); _run(b, f" = {d.get('g', float('nan')):.5f}, ")
+                _run(b, "ΔB"); _run(b, "pp", sub=True)
+                _run(b, f" = {d.get('linewidth_mT', float('nan')):.3f} mT, hyperfine {d.get('nuclei_str', '')}. ")
+                if d.get("interpretation"):
+                    _run(b, str(d["interpretation"]))
+                if d.get("warning"):
+                    _run(b, "  " + str(d["warning"]), italic=True)
+
+        # ── Per-spectrum methods note ──
+        if e.get("methods_text"):
+            mp = doc.add_paragraph()
+            _run(mp, "Methods (this spectrum). ", bold=True)
+            mp.add_run(e["methods_text"])
+
+    # ── Global Methods, models, and equations ──
+    _add_methods_section(doc)
 
     doc.add_paragraph()
     note = doc.add_paragraph()
