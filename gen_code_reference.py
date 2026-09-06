@@ -37,13 +37,18 @@ GROUPS = [
         "epr_simfit/model_suggester.py", "epr_simfit/interpretation.py", "epr_simfit/io.py",
         "epr_simfit/bruker.py", "epr_simfit/metadata_parser.py", "epr_simfit/batch.py",
         "epr_simfit/export.py", "epr_simfit/reference_library.py", "epr_simfit/user_models.py",
-        "epr_simfit/native_solvers.py", "epr_simfit/ml_fitting.py", "epr_simfit/mixtures.py", "epr_simfit/plotting.py", "epr_simfit/report.py",
-        "epr_simfit/evidence.py", "epr_simfit/demo_data.py", "epr_simfit/utils.py",
+        "epr_simfit/native_solvers.py", "epr_simfit/ml_fitting.py", "epr_simfit/mixtures.py",
+        "epr_simfit/fit_store.py", "epr_simfit/project.py", "epr_simfit/plotting.py",
+        "epr_simfit/fig_export.py", "epr_simfit/pub_export.py", "epr_simfit/docx_report.py",
+        "epr_simfit/report.py", "epr_simfit/evidence.py", "epr_simfit/demo_data.py", "epr_simfit/utils.py",
         "epr_simfit/about.py", "epr_simfit/cli.py",
     ]),
     ("Part III — Application interfaces (Streamlit)", ["app_openspin.py", "app_simepr.py"]),
     ("Part IV — Tests", ["tests/test_openspin.py", "tests/test_all_capabilities.py",
-                         "tests/test_native_solvers.py"]),
+                         "tests/test_native_solvers.py", "tests/test_mixtures.py",
+                         "tests/test_fit_store.py", "tests/test_pub_export.py",
+                         "tests/test_fig_export.py", "tests/test_docx_report.py",
+                         "tests/test_project.py", "tests/test_plot_readout.py"]),
 ]
 
 doc = Document()
