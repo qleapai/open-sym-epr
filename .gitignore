@@ -27,3 +27,5 @@ Thumbs.db
 scratch/
 *.tmp
 *.zip
+~$*
+paper/node_modules/
