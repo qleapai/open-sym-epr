@@ -3,7 +3,7 @@
 **A free, open-source, native-Python engine and browser app for the simulation and fitting of
 continuous-wave EPR, ENDOR, ESEEM, and magnetometry — no MATLAB, no proprietary dependencies.**
 
-[![tests](https://github.com/USER/open-sym-epr/actions/workflows/tests.yml/badge.svg)](https://github.com/USER/open-sym-epr/actions)
+[![tests](https://github.com/qleapai/open-sym-epr/actions/workflows/tests.yml/badge.svg)](https://github.com/qleapai/open-sym-epr/actions)
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 [![Python](https://img.shields.io/badge/python-3.10%2B-blue.svg)](pyproject.toml)
 
@@ -38,7 +38,7 @@ simulation code.
 ## Quick start
 
 ```bash
-git clone https://github.com/USER/open-sym-epr.git
+git clone https://github.com/qleapai/open-sym-epr.git
 cd open-sym-epr
 python -m venv .venv
 .venv/Scripts/pip install -e .        # Linux/macOS: .venv/bin/pip install -e .

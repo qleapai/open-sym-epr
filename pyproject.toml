@@ -29,8 +29,8 @@ dependencies = [
 dev = ["pytest>=8.0"]
 
 [project.urls]
-Homepage = "https://github.com/USER/open-sym-epr"
-Repository = "https://github.com/USER/open-sym-epr"
+Homepage = "https://github.com/qleapai/open-sym-epr"
+Repository = "https://github.com/qleapai/open-sym-epr"
 
 [tool.setuptools.packages.find]
 include = ["openspin*", "epr_simfit*"]
