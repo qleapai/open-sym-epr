@@ -29,3 +29,5 @@ scratch/
 *.zip
 ~$*
 paper/node_modules/
+docs/SimEPR_paper.docx
+docs/SimEPR_arXiv_preprint.md
