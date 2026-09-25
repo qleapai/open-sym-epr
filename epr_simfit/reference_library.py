@@ -1,13 +1,12 @@
 """Reference EPR standards with literature spin-Hamiltonian parameters.
 
 These standards (DPPH, TEMPO, Mn(II), Cu(II), vanadyl, PBN adducts) let users
-validate Open-Sym-EPR against well-characterised systems and benchmark fits in
-parallel with EasySpin.  Parameters are typical literature values for X-band;
-exact values depend on solvent, temperature, and coordination.
+validate Open-Sym-EPR against well-characterised systems and benchmark fits.
+Parameters are typical literature values for X-band; exact values depend on
+solvent, temperature, and coordination.
 
-Each entry provides a Open-Sym-EPR :class:`SpinComponent`, a recommended field window,
-and a parallel EasySpin script string, so the same model can be run in both
-programs and compared.
+Each entry provides an Open-Sym-EPR :class:`SpinComponent` and a recommended field
+window for simulation and fitting.
 
 Indicative references
 ---------------------
@@ -142,22 +141,3 @@ def reference_standards() -> dict[str, ReferenceStandard]:
     )
 
     return refs
-
-
-def easyspin_reference_script(ref: ReferenceStandard) -> str:
-    """Generate a parallel EasySpin script for a reference standard."""
-    from .export import easyspin_component_block
-
-    header = [
-        f"% EasySpin reference script for {ref.name}",
-        f"% {ref.note}",
-        "clear; clf;",
-        f"Exp.mwFreq = {ref.mw_freq_GHz:.6g};   % GHz",
-        f"Exp.Range  = [{ref.field_window_mT[0]:.6g} {ref.field_window_mT[1]:.6g}];  % mT",
-        "Exp.Harmonic = 1;",
-        "",
-    ]
-    body = easyspin_component_block(ref.component, index=1)
-    solver = "pepper" if ref.component.is_anisotropic() else "garlic"
-    footer = ["", f"[B,spc] = {solver}(Sys1,Exp);", "plot(B,spc); xlabel('Field (mT)'); ylabel('dchi''''/dB');"]
-    return "\n".join(header + body + footer)

@@ -7,7 +7,6 @@ with Kronecker (tensor) products.
 References
 ----------
 Sakurai & Napolitano, *Modern Quantum Mechanics* (angular momentum algebra).
-Stoll & Schweiger, *J. Magn. Reson.* 178 (2006) 42 (EasySpin spin operators).
 """
 
 from __future__ import annotations

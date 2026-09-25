@@ -1,6 +1,6 @@
 # Reference Spectra Plan
 
-Future DOI-linked Open-Sym-EPR releases should include curated experimental reference spectra and parallel Open-Sym-EPR/EasySpin fits for:
+Future DOI-linked Open-Sym-EPR releases should include curated experimental reference spectra and Open-Sym-EPR fits for:
 
 - TEMPO or a TEMPO-like nitroxide reference;
 - DPPH g-calibration reference;
@@ -16,7 +16,6 @@ Each reference entry should include:
 - spectrometer metadata;
 - literature or experimental source;
 - Open-Sym-EPR fit;
-- EasySpin fit;
 - exported metrics and uncertainty table;
 - known limitations and expected valid use.
 

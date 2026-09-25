@@ -27,7 +27,7 @@ Open-Sym-EPR is appropriate for:
 - screening common isotropic radical, spin-probe, defect, and transition-metal patterns;
 - fitting mixtures with bounded weights, linewidths, and g values;
 - comparing candidate models by RSS, RMSE, R2, AIC, and BIC;
-- exporting reproducible fit tables, plot data, reports, EasySpin scripts, and ORCA EPR templates.
+- exporting reproducible fit tables, plot data, reports, and ORCA EPR templates.
 
 ## Limitations
 
@@ -45,7 +45,7 @@ The present version is not a full anisotropic EPR tensor simulator. It does not 
 
 ## Development Roadmap
 
-Several developments would strengthen Open-Sym-EPR as a research software platform. First, a DOI-linked release archive should be created for the exact manuscript version. Second, experimental reference spectra should be included for TEMPO, DPPH, Mn(II), Cu(II), vanadyl and representative PBN adducts, with parallel fits in Open-Sym-EPR and EasySpin. Third, uncertainty estimates should be added to exported fit tables. Fourth, the EasySpin export could be expanded to tensor and powder models rather than only simple isotropic mixture scripts. Fifth, a batch-processing mode could apply a fixed model to time-series or catalyst-series spectra and export kinetic plots. Sixth, tests should cover the powder engine more extensively, including convergence with orientation count and comparison against analytical or EasySpin reference cases.
+Several developments would strengthen Open-Sym-EPR as a research software platform. First, a DOI-linked release archive should be created for the exact manuscript version. Second, experimental reference spectra should be included for TEMPO, DPPH, Mn(II), Cu(II), vanadyl and representative PBN adducts, with Open-Sym-EPR fits. Third, uncertainty estimates should be added to exported fit tables. Fourth, a batch-processing mode could apply a fixed model to time-series or catalyst-series spectra and export kinetic plots. Fifth, tests should cover the powder engine more extensively, including convergence with orientation count and comparison against analytical reference cases.
 
 The current public version already takes initial steps toward these goals by exporting first-pass least-squares standard errors for fitted parameters, supporting uploaded user model libraries, and including general-purpose powder/anisotropic components. The remaining roadmap items should be versioned, benchmarked, and archived with a DOI-linked release before being cited as validated reference functionality.
 

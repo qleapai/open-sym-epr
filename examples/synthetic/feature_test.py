@@ -246,13 +246,12 @@ def C():
 
     def exp():
         r = fits.get("weights only")
-        es = export.easyspin_script(r, mw_frequency_GHz=MW)
         orca = export.orca_templates(r)
         cdf = export.fit_components_dataframe(r)
         zipb = export.build_export_zip(fit=r, mw_frequency_GHz=MW)
-        assert "garlic" in es or "pepper" in es or "Sys" in es
-        return f"easyspin {len(es)}c, {len(orca)} orca templates, zip {len(zipb)} bytes"
-    check("Open-Sym-EPR", "export (easyspin/orca/zip/dataframes)", exp)
+        assert len(cdf) > 0
+        return f"{len(orca)} orca templates, zip {len(zipb)} bytes"
+    check("Open-Sym-EPR", "export (orca/zip/dataframes)", exp)
 
     def usermodels():
         js = user_models.components_to_json(comps, name="testpack")
@@ -283,9 +282,7 @@ def C():
 
     def refs():
         std = reference_library.reference_standards()
-        k = list(std.keys())[0]
-        es = reference_library.easyspin_reference_script(std[k])
-        return f"{len(std)} reference standards, script {len(es)}c"
+        return f"{len(std)} reference standards"
     check("Open-Sym-EPR", "reference_library", refs)
 
 

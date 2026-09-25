@@ -128,10 +128,10 @@ drop gives D; the M(B) saturation gives the ground-state spin.
 """
 
 FITTING = r"""
-### Fitting experimental data — `esfit`
+### Fitting experimental data
 
 Open-Sym-EPR fits a spin-Hamiltonian model to your **experimental** spectrum by
-bounded least squares (the native equivalent of EasySpin's `esfit`).
+bounded nonlinear least squares.
 
 **Workflow**
 1. **Upload** a two-column spectrum (field, intensity); Gauss axes auto-convert to mT.
@@ -179,9 +179,9 @@ Every solver is checked against analytical limits:
 - **Magnetometry** reproduces the Curie law (χT = 0.375 for S=½, g=2) and the
   g·S μ_B magnetisation saturation.
 
-Open-Sym-EPR is a native-Python, open re-implementation inspired by EasySpin
-(Stoll & Schweiger, *J. Magn. Reson.* 2006). It does not use EasySpin code; it
-solves the spin Hamiltonian directly. For pulsed sequences beyond ESEEM
-(HYSCORE, DEER), MD-based lineshapes, and slow-motion SLE, EasySpin remains the
-reference.
+Open-Sym-EPR is an independent, native-Python implementation that solves the
+general electron–nuclear spin Hamiltonian directly by matrix diagonalisation; it
+contains no third-party simulation code. Pulsed sequences beyond ESEEM (HYSCORE,
+DEER), molecular-dynamics-based lineshapes, and slow-motion stochastic-Liouville
+treatments are outside its present scope.
 """

@@ -38,7 +38,7 @@ Exercises **36 features** across four groups and prints a PASS/FAIL matrix
   native solvers (no MATLAB).
 - **Open-Sym-EPR engine** — io, preprocessing, model library, simulator, fitter (3
   modes + Monte-Carlo), model comparison (AIC/BIC), model suggester,
-  interpretation, batch/kinetics, export (EasySpin/ORCA/zip), user-model
+  interpretation, batch/kinetics, export (ORCA/zip), user-model
   round-trip, Bruker, metadata, demo-data, reference standards.
 - **GUI** — headless `AppTest` render of both apps and a live native-solver Run.
 

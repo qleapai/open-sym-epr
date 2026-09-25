@@ -1710,7 +1710,7 @@ with TAB["Export"]:
                         zout.writestr("docs/REFERENCE_SPECTRA.md", REFERENCE_SPECTRA_DOC.read_text(encoding="utf-8"))
                 zip_bytes = buf.getvalue()
             st.session_state["export_zip"] = zip_bytes
-    st.caption("Export includes fit metrics, model metrics, all plotted datasets as CSV, figures, reports, citation files, EasySpin script, and ORCA templates where a fit is available.")
+    st.caption("Export includes fit metrics, model metrics, all plotted datasets as CSV, figures, reports, citation files, and ORCA templates where a fit is available.")
     st.download_button("Download Open-Sym-EPR export ZIP", data=st.session_state.get("export_zip", b""), file_name="Open-Sym-EPR_export.zip", mime="application/zip", disabled="export_zip" not in st.session_state)
 
 with TAB["Batch / kinetics"]:
